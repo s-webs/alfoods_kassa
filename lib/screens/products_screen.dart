@@ -16,6 +16,8 @@ class ProductsScreen extends StatefulWidget {
   State<ProductsScreen> createState() => _ProductsScreenState();
 }
 
+enum _ProductsSortKey { id, name, price, purchasePrice }
+
 class _ProductsScreenState extends State<ProductsScreen> {
   List<Product> _products = [];
   List<Category> _categories = [];
@@ -25,6 +27,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Set<int> _selectedProductIds = {};
   bool _isLoading = true;
   String? _error;
+  _ProductsSortKey _sortKey = _ProductsSortKey.id;
+  bool _sortAsc = false; // по умолчанию id по убыванию (новые сверху)
 
   @override
   void initState() {
@@ -82,6 +86,59 @@ class _ProductsScreenState extends State<ProductsScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  int _compareProducts(Product a, Product b) {
+    int cmp;
+    switch (_sortKey) {
+      case _ProductsSortKey.id:
+        cmp = a.id.compareTo(b.id);
+        break;
+      case _ProductsSortKey.name:
+        cmp = a.name.compareTo(b.name);
+        break;
+      case _ProductsSortKey.price:
+        cmp = a.price.compareTo(b.price);
+        break;
+      case _ProductsSortKey.purchasePrice:
+        cmp = a.purchasePrice.compareTo(b.purchasePrice);
+        break;
+    }
+    return _sortAsc ? cmp : -cmp;
+  }
+
+  void _onSort(_ProductsSortKey key) {
+    setState(() {
+      if (_sortKey == key) {
+        _sortAsc = !_sortAsc;
+      } else {
+        _sortKey = key;
+        _sortAsc = (key == _ProductsSortKey.name);
+      }
+    });
+  }
+
+  Widget _sortHeader(String title, _ProductsSortKey key) {
+    final isActive = _sortKey == key;
+    return InkWell(
+      onTap: () => _onSort(key),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title),
+            const SizedBox(width: 4),
+            Icon(
+              isActive
+                  ? (_sortAsc ? Icons.arrow_upward : Icons.arrow_downward)
+                  : Icons.unfold_more,
+              size: 16,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _deleteSelectedProducts() async {
@@ -187,6 +244,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 newName.contains(query) ||
                 barcode.contains(query);
           }).toList();
+    final List<Product> sortedProducts =
+        List<Product>.from(visibleProducts)..sort(_compareProducts);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -358,8 +417,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                         columns: [
                                           DataColumn(
                                             label: Checkbox(
-                                              value: visibleProducts.isNotEmpty &&
-                                                  visibleProducts.every((p) =>
+                                              value: sortedProducts.isNotEmpty &&
+                                                  sortedProducts.every((p) =>
                                                       _selectedProductIds
                                                           .contains(p.id)),
                                               onChanged: (value) {
@@ -367,13 +426,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                   if (value == true) {
                                                     _selectedProductIds
                                                       ..clear()
-                                                      ..addAll(visibleProducts
+                                                      ..addAll(sortedProducts
                                                           .map((p) => p.id));
                                                     _selectedProduct = null;
                                                   } else {
                                                     _selectedProductIds
                                                         .removeWhere((id) =>
-                                                            visibleProducts.any(
+                                                            sortedProducts.any(
                                                                 (p) =>
                                                                     p.id ==
                                                                     id));
@@ -398,17 +457,21 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                               },
                                             ),
                                           ),
-                                          const DataColumn(label: Text('ID')),
-                                          const DataColumn(
-                                            label: Text('Название'),
+                                          DataColumn(
+                                            label: _sortHeader('ID', _ProductsSortKey.id),
+                                          ),
+                                          DataColumn(
+                                            label: _sortHeader('Название', _ProductsSortKey.name),
                                           ),
                                           const DataColumn(
                                             label: Text('Остатки'),
                                           ),
-                                          const DataColumn(
-                                            label: Text('Цена закупа'),
+                                          DataColumn(
+                                            label: _sortHeader('Цена закупа', _ProductsSortKey.purchasePrice),
                                           ),
-                                          const DataColumn(label: Text('Цена')),
+                                          DataColumn(
+                                            label: _sortHeader('Цена', _ProductsSortKey.price),
+                                          ),
                                           const DataColumn(
                                             label: Text('Цена со скидкой'),
                                           ),
@@ -419,19 +482,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                             label: Text('Сумма'),
                                           ),
                                           const DataColumn(
-                                            label: Text('Сумма со скидкой'),
-                                          ),
-                                          const DataColumn(
                                             label: Text('Действия'),
                                           ),
                                         ],
-                                        rows: visibleProducts.map((p) {
+                                        rows: sortedProducts.map((p) {
                                           final purchaseCost =
                                               p.purchasePrice * p.stock;
                                           final stockValue = p.stock * p.price;
-                                          final stockDiscountValue =
-                                              p.stock *
-                                              (p.discountPrice ?? p.price);
                                           // Штучные — целое число, граммовые — без округления (фактическое значение)
                                           final stockStr = p.unit == 'pcs'
                                               ? p.stock.toStringAsFixed(0)
@@ -512,21 +569,47 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                 ),
                                               ),
                                               DataCell(
-                                                Text(
-                                                  purchaseCost.toStringAsFixed(
-                                                    2,
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 4,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.primary.withValues(alpha: 0.15),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    border: Border.all(
+                                                      color: AppColors.primary.withValues(alpha: 0.5),
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    purchaseCost.toStringAsFixed(2),
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.w600,
+                                                      color: AppColors.primary,
+                                                    ),
                                                   ),
                                                 ),
                                               ),
                                               DataCell(
-                                                Text(
-                                                  stockValue.toStringAsFixed(2),
-                                                ),
-                                              ),
-                                              DataCell(
-                                                Text(
-                                                  stockDiscountValue
-                                                      .toStringAsFixed(2),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 4,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFF22c55e).withValues(alpha: 0.15),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    border: Border.all(
+                                                      color: const Color(0xFF22c55e).withValues(alpha: 0.5),
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    stockValue.toStringAsFixed(2),
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.w600,
+                                                      color: Color(0xFF16a34a),
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
                                               DataCell(

@@ -43,8 +43,9 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
       if (!mounted) return;
       final shift = shifts.where((s) => s.id == widget.shiftId).firstOrNull;
       final filtered = sales.where((s) => s.shiftId == widget.shiftId).toList();
+      final sorted = List<Sale>.from(filtered)..sort((a, b) => b.id.compareTo(a.id));
       setState(() {
-        _sales = filtered;
+        _sales = sorted;
         _shift = shift;
         _isLoading = false;
       });

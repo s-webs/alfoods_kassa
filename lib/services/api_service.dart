@@ -224,6 +224,18 @@ class ApiService {
     await _apiClient.dio.delete('api/sales/$id');
   }
 
+  /// Принять возврат: товары пополняют остатки. Опционально привязка к смене/кассиру.
+  Future<void> acceptReturn({
+    required List<Map<String, dynamic>> items,
+    int? shiftId,
+    int? cashierId,
+  }) async {
+    final data = <String, dynamic>{'items': items};
+    if (shiftId != null) data['shift_id'] = shiftId;
+    if (cashierId != null) data['cashier_id'] = cashierId;
+    await _apiClient.dio.post('api/returns', data: data);
+  }
+
   Future<Sale> returnSale(int id) async {
     final response = await _apiClient.dio.post('api/sales/$id/return');
     return Sale.fromJson(response.data as Map<String, dynamic>);

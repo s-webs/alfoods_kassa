@@ -46,9 +46,10 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
     });
     try {
       final sales = await widget.apiService.getSales();
+      final sorted = List<Sale>.from(sales)..sort((a, b) => b.id.compareTo(a.id));
       if (!mounted) return;
       setState(() {
-        _allSales = sales;
+        _allSales = sorted;
         _isLoading = false;
       });
     } catch (e) {

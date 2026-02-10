@@ -40,8 +40,9 @@ class _AddProductDialogState extends State<AddProductDialog> {
     });
     try {
       final list = await widget.apiService.getProducts(active: true);
+      final sorted = List<Product>.from(list)..sort((a, b) => a.name.compareTo(b.name));
       setState(() {
-        _products = list;
+        _products = sorted;
         _filterProducts();
         _isLoading = false;
       });

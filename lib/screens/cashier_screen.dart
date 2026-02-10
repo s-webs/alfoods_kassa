@@ -35,6 +35,8 @@ class _CashierScreenState extends State<CashierScreen> {
   bool _isOpeningShift = false;
   bool _isClosingShift = false;
   bool _isSelling = false;
+  bool _isReturnMode = false;
+  bool _isAcceptingReturn = false;
   String? _error;
   final FocusNode _barcodeFocusNode = FocusNode();
   final TextEditingController _barcodeController = TextEditingController();
@@ -685,6 +687,15 @@ class _CashierScreenState extends State<CashierScreen> {
   Future<void> _resetCart() async {
     final state = CashierStateScope.of(context);
     if (state.cart.isEmpty) return;
+    if (_isReturnMode) {
+      state.clearCart();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Корзина очищена')),
+        );
+      }
+      return;
+    }
     final hadSavedSale = state.lastSavedSaleId != null;
     setState(() => _isResetting = true);
     try {
@@ -711,6 +722,38 @@ class _CashierScreenState extends State<CashierScreen> {
           content: Text('Ошибка сброса: ${e.toString().replaceFirst('Exception: ', '')}'),
         ),
       );
+    }
+  }
+
+  Future<void> _acceptReturn() async {
+    final state = CashierStateScope.of(context);
+    if (state.cart.isEmpty) return;
+    setState(() {
+      _isAcceptingReturn = true;
+      _error = null;
+    });
+    try {
+      final items = state.cart.map((c) => c.toJson()).toList();
+      final shift = _currentOpenShift;
+      await widget.apiService.acceptReturn(
+        items: items,
+        shiftId: shift?.id,
+        cashierId: null,
+      );
+      if (!mounted) return;
+      state.clearCart();
+      setState(() => _isAcceptingReturn = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Возврат принят')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isAcceptingReturn = false;
+        _error = 'Не удалось принять возврат';
+      });
     }
   }
 
@@ -860,6 +903,7 @@ class _CashierScreenState extends State<CashierScreen> {
               children: [
                 _buildShiftBlock(context),
                 if (_currentOpenShift != null) _buildTopActions(context),
+                if (_isReturnMode) _buildReturnModeBanner(context),
                 if (_error != null) _buildErrorBlock(context),
                 Expanded(child: _buildCartBlock(context)),
                 _buildActionBlock(context),
@@ -976,6 +1020,7 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   Widget _buildTopActions(BuildContext context) {
+    final state = CashierStateScope.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -987,16 +1032,64 @@ class _CashierScreenState extends State<CashierScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          if (_isReturnMode)
+            OutlinedButton.icon(
+              onPressed: _isAcceptingReturn
+                  ? null
+                  : () {
+                      setState(() {
+                        _isReturnMode = false;
+                        state.clearCart();
+                      });
+                    },
+              icon: const Icon(Icons.point_of_sale, size: 20),
+              label: const Text('Продажа'),
+            ),
+          if (_isReturnMode) const SizedBox(width: 12),
+          if (!_isReturnMode)
+            OutlinedButton.icon(
+              onPressed: _isSelling
+                  ? null
+                  : () {
+                      setState(() {
+                        _isReturnMode = true;
+                        state.clearCart();
+                      });
+                    },
+              icon: const Icon(Icons.keyboard_return, size: 20),
+              label: const Text('Принять возврат'),
+            ),
+          if (!_isReturnMode) const SizedBox(width: 12),
           FilledButton.icon(
-            onPressed: !_isSelling ? _showAddProductDialog : null,
+            onPressed: !_isSelling && !_isAcceptingReturn ? _showAddProductDialog : null,
             icon: const Icon(Icons.add),
             label: const Text('Добавить вручную'),
           ),
           const SizedBox(width: 12),
           OutlinedButton.icon(
-            onPressed: !_isSelling ? _showBarcodeTestDialog : null,
+            onPressed: !_isSelling && !_isAcceptingReturn ? _showBarcodeTestDialog : null,
             icon: const Icon(Icons.qr_code_scanner, size: 20),
             label: const Text('Тест сканера'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReturnModeBanner(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: AppColors.accent.withValues(alpha: 0.15),
+      child: Row(
+        children: [
+          Icon(Icons.keyboard_return, color: AppColors.accent, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            'Режим возврата — товары пополнят остатки',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              color: AppColors.accent,
+            ),
           ),
         ],
       ),
@@ -1195,6 +1288,16 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   Widget _buildActionBlock(BuildContext context) {
+    final state = CashierStateScope.of(context);
+    final cartNotEmpty = state.cart.isNotEmpty;
+    final showPrintPdf = cartNotEmpty && !_isReturnMode;
+    final isAcceptReturnEnabled =
+        _isReturnMode && cartNotEmpty && !_isAcceptingReturn;
+    final isSellEnabled = !_isReturnMode &&
+        _currentOpenShift != null &&
+        cartNotEmpty &&
+        !_isSelling;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1209,11 +1312,11 @@ class _CashierScreenState extends State<CashierScreen> {
       ),
       child: Row(
         children: [
-          if (CashierStateScope.of(context).cart.isNotEmpty)
+          if (cartNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 16),
               child: Text(
-                'Итого: ${CashierStateScope.of(context).cartTotal.toStringAsFixed(2)} ₸',
+                'Итого: ${state.cartTotal.toStringAsFixed(2)} ₸',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: AppColors.primary,
@@ -1221,7 +1324,7 @@ class _CashierScreenState extends State<CashierScreen> {
               ),
             ),
           const Spacer(),
-          if (CashierStateScope.of(context).cart.isNotEmpty) ...[
+          if (showPrintPdf) ...[
             OutlinedButton.icon(
               onPressed: _printReceipt,
               icon: const Icon(Icons.print, size: 20),
@@ -1235,9 +1338,9 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
             const SizedBox(width: 12),
           ],
-          if (CashierStateScope.of(context).cart.isNotEmpty) ...[
+          if (cartNotEmpty) ...[
             OutlinedButton.icon(
-              onPressed: !_isResetting ? _resetCart : null,
+              onPressed: !_isResetting && !_isAcceptingReturn ? _resetCart : null,
               icon: _isResetting
                   ? const SizedBox(
                       width: 20,
@@ -1253,26 +1356,40 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
             const SizedBox(width: 12),
           ],
-          FilledButton.icon(
-            onPressed:
-                _currentOpenShift != null &&
-                    CashierStateScope.of(context).cart.isNotEmpty &&
-                    !_isSelling
-                ? _sell
-                : null,
-            icon: _isSelling
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.point_of_sale),
-            label: Text(_isSelling ? 'Оформление...' : 'Продать'),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
-          ),
+          if (_isReturnMode)
+            FilledButton.icon(
+              onPressed: isAcceptReturnEnabled ? _acceptReturn : null,
+              icon: _isAcceptingReturn
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.keyboard_return),
+              label: Text(
+                _isAcceptingReturn ? 'Приём...' : 'Принять возврат',
+              ),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+            )
+          else
+            FilledButton.icon(
+              onPressed: isSellEnabled ? _sell : null,
+              icon: _isSelling
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.point_of_sale),
+              label: Text(_isSelling ? 'Оформление...' : 'Продать'),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+            ),
         ],
       ),
     );

@@ -13,7 +13,7 @@ class CashierState extends ChangeNotifier {
 
   void addItem(CartItem item) {
     _lastSavedSaleId = null;
-    _cart.add(item);
+    _cart.insert(0, item);
     notifyListeners();
   }
 
@@ -23,7 +23,7 @@ class CashierState extends ChangeNotifier {
     if (i >= 0) {
       _cart[i].quantity += step;
     } else {
-      _cart.add(newItem);
+      _cart.insert(0, newItem);
     }
     notifyListeners();
   }
