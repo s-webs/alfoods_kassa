@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import '../core/theme.dart';
-import '../core/storage.dart';
-import '../services/api_service.dart';
 
-class AppShell extends StatelessWidget {
+import '../core/storage.dart';
+import '../core/theme.dart';
+import '../services/api_service.dart';
+import '../state/cashier_state.dart';
+
+class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
     required this.storage,
@@ -18,6 +20,19 @@ class AppShell extends StatelessWidget {
   final Widget child;
 
   @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  late final CashierState _cashierState;
+
+  @override
+  void initState() {
+    super.initState();
+    _cashierState = CashierState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
 
@@ -27,13 +42,18 @@ class AppShell extends StatelessWidget {
           _Sidebar(
             currentLocation: location,
             onLogout: () async {
-              await apiService.logout();
+              await widget.apiService.logout();
               if (context.mounted) {
                 context.go('/login');
               }
             },
           ),
-          Expanded(child: child),
+          Expanded(
+            child: CashierStateScope(
+              state: _cashierState,
+              child: widget.child,
+            ),
+          ),
         ],
       ),
     );
@@ -103,6 +123,12 @@ class _Sidebar extends StatelessWidget {
                   isSelected: currentLocation == '/sales' ||
                       currentLocation.startsWith('/sales/'),
                   onTap: () => context.go('/sales'),
+                ),
+                _NavItem(
+                  icon: PhosphorIconsRegular.gear,
+                  label: 'Настройки',
+                  isSelected: currentLocation == '/settings',
+                  onTap: () => context.go('/settings'),
                 ),
               ],
             ),

@@ -25,6 +25,12 @@ class Product {
     this.unit = 'pcs',
   });
 
+  static double _parseDouble(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0;
+  }
+
   factory Product.fromJson(Map<String, dynamic> json) {
     return Product(
       id: json['id'] as int,
@@ -38,7 +44,7 @@ class Product {
           ? (json['discount_price'] as num).toDouble()
           : null,
       purchasePrice: (json['purchase_price'] as num?)?.toDouble() ?? 0,
-      stock: (json['stock'] as num?)?.toDouble() ?? 0,
+      stock: _parseDouble(json['stock']),
       unit: json['unit'] as String? ?? 'pcs',
     );
   }

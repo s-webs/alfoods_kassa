@@ -74,11 +74,22 @@ class _ShiftsListScreenState extends State<ShiftsListScreen> {
               bottom: BorderSide(color: AppColors.muted.withValues(alpha: 0.5)),
             ),
           ),
-          child: Text(
-            'Продажи',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Продажи',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
+              ),
+              TextButton.icon(
+                onPressed: () => context.push('/sales/search'),
+                icon: const Icon(Icons.search, size: 20),
+                label: const Text('Поиск продажи'),
+              ),
+            ],
           ),
         ),
         Expanded(

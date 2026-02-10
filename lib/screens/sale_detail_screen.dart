@@ -1,20 +1,30 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/storage.dart';
 import '../core/theme.dart';
 import '../models/cart_item.dart';
 import '../models/cashier.dart';
+import '../models/product.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../widgets/add_product_dialog.dart';
+import '../services/receipt_pdf_service.dart';
+import '../services/receipt_printer_service.dart';
 
 class SaleDetailScreen extends StatefulWidget {
   const SaleDetailScreen({
     super.key,
+    required this.storage,
     required this.apiService,
     required this.saleId,
   });
 
+  final Storage storage;
   final ApiService apiService;
   final int saleId;
 
@@ -243,18 +253,47 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     setState(() => _editingPriceIndex = null);
   }
 
-  Future<void> _addItem() async {
+  /// Добавить позицию из каталога товаров (модалка со списком, как в кассе).
+  Future<void> _addItemFromCatalog() async {
+    final product = await showDialog<Product>(
+      context: context,
+      builder: (ctx) => AddProductDialog(apiService: widget.apiService),
+    );
+    if (product == null || !mounted) return;
+    setState(() {
+      final step = product.unit == 'pcs' ? 1.0 : 0.1;
+      final existingIndex =
+          _items.indexWhere((e) => e.productId == product.id);
+      if (existingIndex >= 0) {
+        _items[existingIndex].quantity += step;
+      } else {
+        _items.add(
+          CartItem(
+            productId: product.id,
+            name: product.name,
+            price: product.effectivePrice,
+            quantity: step,
+            unit: product.unit,
+          ),
+        );
+      }
+    });
+  }
+
+  /// Добавить произвольный товар (снимок, которого нет в базе).
+  Future<void> _addArbitraryItem() async {
     final nameController = TextEditingController(text: '');
     final priceController = TextEditingController(text: '0');
     String unit = 'pcs';
     final quantityController = TextEditingController(text: '1');
-    final result = await showDialog<({String name, double price, String unit, double quantity})>(
+    final result = await showDialog<
+        ({String name, double price, String unit, double quantity})>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             return AlertDialog(
-              title: const Text('Добавить позицию'),
+              title: const Text('Добавить произвольный товар'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -269,7 +308,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: priceController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true),
                       decoration: const InputDecoration(
                         labelText: 'Цена, ₸',
                         border: OutlineInputBorder(),
@@ -286,12 +326,14 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                         DropdownMenuItem(value: 'pcs', child: Text('шт')),
                         DropdownMenuItem(value: 'g', child: Text('г')),
                       ],
-                      onChanged: (v) => setDialogState(() => unit = v ?? 'pcs'),
+                      onChanged: (v) =>
+                          setDialogState(() => unit = v ?? 'pcs'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: quantityController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true),
                       decoration: const InputDecoration(
                         labelText: 'Количество',
                         border: OutlineInputBorder(),
@@ -383,6 +425,136 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     }
   }
 
+  Future<void> _returnSale() async {
+    if (_sale == null) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Оформить возврат?'),
+        content: const Text(
+          'Вернуть товары в остатки? Продажа получит статус «Возврат» и редактировать её будет нельзя.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+            child: const Text('Оформить возврат'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      final updated = await widget.apiService.returnSale(widget.saleId);
+      if (!mounted) return;
+      setState(() {
+        _sale = updated;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Возврат оформлен')),
+        );
+      }
+      context.pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Не удалось оформить возврат');
+    }
+  }
+
+  Future<void> _printReceipt() async {
+    if (!Platform.isWindows) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Печать чеков доступна только на Windows'),
+        ),
+      );
+      return;
+    }
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Нет позиций для печати')),
+      );
+      return;
+    }
+    final cashiersMatch = _cashiers.where((c) => c.id == _selectedCashierId).toList();
+    final cashierName = cashiersMatch.isNotEmpty ? cashiersMatch.first.name : '—';
+    try {
+      final bytes = ReceiptPrinterService.buildReceipt(
+        saleId: widget.saleId,
+        cashierName: cashierName,
+        items: _items,
+        total: _itemsTotal,
+        dateTime: _sale?.createdAt ?? DateTime.now(),
+      );
+      await ReceiptPrinterService.printReceipt(
+        printerName: widget.storage.receiptPrinterName,
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Чек отправлен на печать')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ошибка печати: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveReceiptPdf() async {
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Нет позиций для сохранения')),
+      );
+      return;
+    }
+    final cashiersMatch = _cashiers.where((c) => c.id == _selectedCashierId).toList();
+    final cashierName = cashiersMatch.isNotEmpty ? cashiersMatch.first.name : '—';
+    try {
+      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
+        saleId: widget.saleId,
+        cashierName: cashierName,
+        items: _items,
+        total: _itemsTotal,
+        dateTime: _sale?.createdAt ?? DateTime.now(),
+      );
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Сохранить чек в PDF',
+        fileName: 'chek-${widget.saleId}.pdf',
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+      if (!mounted) return;
+      if (path != null && path.isNotEmpty) {
+        final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
+        await File(savePath).writeAsBytes(pdfBytes);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Чек сохранён: $savePath')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -425,9 +597,25 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     }
 
     final sale = _sale!;
+    final isReturned = sale.isReturned;
     return Scaffold(
       appBar: AppBar(
-        title: Text('Продажа #${sale.id}'),
+        title: Row(
+          children: [
+            Text('Продажа #${sale.id}'),
+            if (isReturned) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.muted.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Возврат', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ],
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
@@ -474,6 +662,43 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                     const Divider(),
                     ...List.generate(_items.length, (index) {
                       final item = _items[index];
+                      if (isReturned) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${item.price.toStringAsFixed(2)} ₸ × ${item.quantity} ${item.unit}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.muted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                '${item.total.toStringAsFixed(2)} ₸',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Row(
@@ -622,72 +847,118 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: _isSaving ? null : _addItem,
-                      icon: const Icon(Icons.add, size: 20),
-                      label: const Text('Добавить позицию'),
-                    ),
+                    if (!isReturned) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _isSaving ? null : _addItemFromCatalog,
+                              icon: const Icon(Icons.list, size: 20),
+                              label: const Text('Добавить позицию'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _isSaving ? null : _addArbitraryItem,
+                              icon: const Icon(Icons.edit_note, size: 20),
+                              label: const Text('Произвольный товар'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-            Text(
-              'Редактирование',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<int?>(
-              initialValue: _selectedCashierId,
-              decoration: const InputDecoration(labelText: 'Кассир'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Не выбран')),
-                ..._cashiers.map(
-                  (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
-                ),
-              ],
-              onChanged: (v) => setState(() => _selectedCashierId = v),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<int?>(
-              initialValue: _selectedShiftId,
-              decoration: const InputDecoration(labelText: 'Смена'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Не выбрана')),
-                ..._shifts.map(
-                  (s) => DropdownMenuItem(
-                    value: s.id,
-                    child: Text(
-                      '${s.openedAt.day.toString().padLeft(2, '0')}.${s.openedAt.month.toString().padLeft(2, '0')} '
-                      '${s.openedAt.hour.toString().padLeft(2, '0')}:${s.openedAt.minute.toString().padLeft(2, '0')}'
-                      '${s.closedAt != null ? ' (закрыта)' : ' (открыта)'}',
+            if (!isReturned) ...[
+              const SizedBox(height: 24),
+              Text(
+                'Редактирование',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int?>(
+                value: _selectedCashierId,
+                decoration: const InputDecoration(labelText: 'Кассир'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Не выбран')),
+                  ..._cashiers.map(
+                    (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
+                  ),
+                ],
+                onChanged: (v) => setState(() => _selectedCashierId = v),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<int?>(
+                value: _selectedShiftId,
+                decoration: const InputDecoration(labelText: 'Смена'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Не выбрана')),
+                  ..._shifts.map(
+                    (s) => DropdownMenuItem(
+                      value: s.id,
+                      child: Text(
+                        '${s.openedAt.day.toString().padLeft(2, '0')}.${s.openedAt.month.toString().padLeft(2, '0')} '
+                        '${s.openedAt.hour.toString().padLeft(2, '0')}:${s.openedAt.minute.toString().padLeft(2, '0')}'
+                        '${s.closedAt != null ? ' (закрыта)' : ' (открыта)'}',
+                      ),
                     ),
                   ),
-                ),
-              ],
-              onChanged: (v) => setState(() => _selectedShiftId = v),
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _isSaving ? null : _save,
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Сохранить'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: _isSaving ? null : _delete,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.danger,
-                side: const BorderSide(color: AppColors.danger),
+                ],
+                onChanged: (v) => setState(() => _selectedShiftId = v),
               ),
-              child: const Text('Удалить'),
-            ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: _items.isEmpty ? null : _saveReceiptPdf,
+                icon: const Icon(Icons.picture_as_pdf, size: 20),
+                label: const Text('Сохранить в PDF'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (Platform.isWindows)
+                FilledButton.icon(
+                  onPressed: _items.isEmpty ? null : _printReceipt,
+                  icon: const Icon(Icons.print, size: 20),
+                  label: const Text('Печать чека'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                  ),
+                ),
+              if (Platform.isWindows) const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _isSaving ? null : _save,
+                child: _isSaving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Сохранить'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: _isSaving ? null : _returnSale,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.accent,
+                  side: const BorderSide(color: AppColors.accent),
+                ),
+                child: const Text('Оформить возврат'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: _isSaving ? null : _delete,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.danger,
+                  side: const BorderSide(color: AppColors.danger),
+                ),
+                child: const Text('Удалить'),
+              ),
+            ],
           ],
         ),
       ),

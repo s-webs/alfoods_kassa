@@ -1,11 +1,17 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../core/theme.dart';
 import '../core/storage.dart';
+import '../core/theme.dart';
 import '../models/cart_item.dart';
 import '../models/product.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../state/cashier_state.dart';
+import '../services/receipt_pdf_service.dart';
+import '../services/receipt_printer_service.dart';
 import '../utils/slugify.dart';
 import '../widgets/add_product_dialog.dart';
 
@@ -25,7 +31,6 @@ class CashierScreen extends StatefulWidget {
 
 class _CashierScreenState extends State<CashierScreen> {
   List<Shift> _shifts = [];
-  List<CartItem> _cart = [];
   bool _isLoading = true;
   bool _isOpeningShift = false;
   bool _isClosingShift = false;
@@ -38,6 +43,7 @@ class _CashierScreenState extends State<CashierScreen> {
   int? _editingPriceIndex;
   TextEditingController? _nameEditController;
   TextEditingController? _priceEditController;
+  bool _isResetting = false;
 
   @override
   void initState() {
@@ -143,38 +149,32 @@ class _CashierScreenState extends State<CashierScreen> {
       unit == 'pcs' ? 1.0 : 0.1; // штучные +1, граммовые +100 г (0.1 кг)
 
   void _addProduct(Product product) {
-    setState(() {
-      final step = _quantityStep(product.unit);
-      final existingIndex = _cart.indexWhere((c) => c.productId == product.id);
-      if (existingIndex >= 0) {
-        _cart[existingIndex].quantity += step;
-      } else {
-        _cart.add(
-          CartItem(
-            productId: product.id,
-            name: product.name,
-            price: product.effectivePrice,
-            quantity: step,
-            unit: product.unit,
-          ),
-        );
-      }
-    });
+    final state = CashierStateScope.of(context);
+    final step = _quantityStep(product.unit);
+    state.addOrIncrementQuantity(
+      product.id,
+      step,
+      CartItem(
+        productId: product.id,
+        name: product.name,
+        price: product.effectivePrice,
+        quantity: step,
+        unit: product.unit,
+      ),
+    );
   }
 
   void _updateQuantity(int index, double delta) {
-    setState(() {
-      final item = _cart[index];
-      final step = _quantityStep(item.unit);
-      item.quantity += delta * step;
-      if (item.quantity <= 0) {
-        _cart.removeAt(index);
-      }
-    });
+    final state = CashierStateScope.of(context);
+    final item = state.cart[index];
+    final step = _quantityStep(item.unit);
+    final newQty = item.quantity + delta * step;
+    state.updateQuantityAt(index, newQty);
   }
 
   Future<void> _editQuantity(int index) async {
-    final item = _cart[index];
+    final state = CashierStateScope.of(context);
+    final item = state.cart[index];
     final isPcs = item.unit == 'pcs';
     final initial = isPcs
         ? item.quantity.toInt().toString()
@@ -225,41 +225,33 @@ class _CashierScreenState extends State<CashierScreen> {
       },
     );
     if (result != null && mounted) {
-      setState(() {
-        if (result <= 0) {
-          _cart.removeAt(index);
-        } else {
-          _cart[index].quantity = result;
-        }
-      });
+      state.updateQuantityAt(index, result);
     }
   }
 
   void _removeFromCart(int index) {
-    setState(() {
-      _cart.removeAt(index);
-    });
+    CashierStateScope.of(context).removeAt(index);
   }
 
   void _startEditName(int index) {
-    if (index < 0 || index >= _cart.length) return;
+    final state = CashierStateScope.of(context);
+    if (index < 0 || index >= state.cart.length) return;
     setState(() {
       _editingNameIndex = index;
-      _nameEditController?.dispose();
-      _nameEditController = TextEditingController(text: _cart[index].name);
+    _nameEditController?.dispose();
+    _nameEditController = TextEditingController(text: state.cart[index].name);
     });
   }
 
   void _finishEditName({bool save = true}) {
     final index = _editingNameIndex;
-    if (index == null || index < 0 || index >= _cart.length) return;
+    final state = CashierStateScope.of(context);
+    if (index == null || index < 0 || index >= state.cart.length) return;
     final controller = _nameEditController;
     if (controller != null && save) {
       final text = controller.text.trim();
       if (text.isNotEmpty) {
-        setState(() {
-          _cart[index].name = text;
-        });
+        CashierStateScope.of(context).updateNameAt(index, text);
       }
     }
     _nameEditController?.dispose();
@@ -268,27 +260,27 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   void _startEditPrice(int index) {
-    if (index < 0 || index >= _cart.length) return;
+    final state = CashierStateScope.of(context);
+    if (index < 0 || index >= state.cart.length) return;
     setState(() {
       _editingPriceIndex = index;
       _priceEditController?.dispose();
       _priceEditController = TextEditingController(
-        text: _cart[index].price.toStringAsFixed(2),
+        text: state.cart[index].price.toStringAsFixed(2),
       );
     });
   }
 
   void _finishEditPrice({bool save = true}) {
     final index = _editingPriceIndex;
-    if (index == null || index < 0 || index >= _cart.length) return;
+    final state = CashierStateScope.of(context);
+    if (index == null || index < 0 || index >= state.cart.length) return;
     final controller = _priceEditController;
     if (controller != null && save) {
       final text = controller.text.replaceFirst(',', '.').trim();
       final value = double.tryParse(text);
       if (value != null && value >= 0) {
-        setState(() {
-          _cart[index].price = value;
-        });
+        CashierStateScope.of(context).updatePriceAt(index, value);
       }
     }
     _priceEditController?.dispose();
@@ -515,17 +507,15 @@ class _CashierScreenState extends State<CashierScreen> {
     );
 
     if (result != null && mounted) {
-      setState(() {
-        _cart.add(
-          CartItem(
-            productId: 0,
-            name: result.name,
-            price: result.price,
-            quantity: result.quantity,
-            unit: result.unit,
-          ),
-        );
-      });
+      CashierStateScope.of(context).addItem(
+        CartItem(
+          productId: 0,
+          name: result.name,
+          price: result.price,
+          quantity: result.quantity,
+          unit: result.unit,
+        ),
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Позиция добавлена в корзину')),
       );
@@ -651,17 +641,18 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   Future<void> _sell() async {
-    if (_cart.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Корзина пуста')));
+    final state = CashierStateScope.of(context);
+    if (state.cart.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Корзина пуста')),
+      );
       return;
     }
     final shift = _currentOpenShift;
     if (shift == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Смена не открыта')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Смена не открыта')),
+      );
       return;
     }
 
@@ -670,17 +661,17 @@ class _CashierScreenState extends State<CashierScreen> {
       _error = null;
     });
     try {
-      final items = _cart.map((c) => c.toJson()).toList();
-      await widget.apiService.createSale(shiftId: shift.id, items: items);
+      if (state.lastSavedSaleId == null) {
+        final items = state.cart.map((c) => c.toJson()).toList();
+        await widget.apiService.createSale(shiftId: shift.id, items: items);
+      }
       if (!mounted) return;
-      setState(() {
-        _cart = [];
-        _isSelling = false;
-      });
+      state.clearCart();
+      setState(() => _isSelling = false);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Продажа оформлена')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Продажа оформлена')),
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -691,6 +682,38 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
+  Future<void> _resetCart() async {
+    final state = CashierStateScope.of(context);
+    if (state.cart.isEmpty) return;
+    final hadSavedSale = state.lastSavedSaleId != null;
+    setState(() => _isResetting = true);
+    try {
+      if (state.lastSavedSaleId != null) {
+        await widget.apiService.deleteSale(state.lastSavedSaleId!);
+      }
+      if (!mounted) return;
+      state.clearCart();
+      setState(() => _isResetting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              hadSavedSale ? 'Продажа отменена, корзина очищена' : 'Корзина очищена',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isResetting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка сброса: ${e.toString().replaceFirst('Exception: ', '')}'),
+        ),
+      );
+    }
+  }
+
   Shift? get _currentOpenShift {
     for (final s in _shifts) {
       if (s.isOpen) return s;
@@ -698,8 +721,126 @@ class _CashierScreenState extends State<CashierScreen> {
     return null;
   }
 
-  double get _cartTotal {
-    return _cart.fold(0, (sum, item) => sum + item.total);
+  String get _cashierName {
+    final name = widget.storage.user?['name']?.toString();
+    return name != null && name.isNotEmpty ? name : 'Кассир';
+  }
+
+  /// Сохраняет текущую корзину как продажу (если ещё не сохранена) и возвращает id чека.
+  Future<int?> _ensureSaleSaved() async {
+    final state = CashierStateScope.of(context);
+    final shift = _currentOpenShift;
+    if (shift == null || state.cart.isEmpty) return null;
+    if (state.lastSavedSaleId != null) return state.lastSavedSaleId;
+    try {
+      final items = state.cart.map((c) => c.toJson()).toList();
+      final sale = await widget.apiService.createSale(shiftId: shift.id, items: items);
+      if (!mounted) return null;
+      state.setLastSavedSaleId(sale.id);
+      return sale.id;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось сохранить продажу')),
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<void> _printReceipt() async {
+    final state = CashierStateScope.of(context);
+    if (state.cart.isEmpty) return;
+    if (!Platform.isWindows) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Печать чеков доступна только на Windows')),
+      );
+      return;
+    }
+    try {
+      final saleId = await _ensureSaleSaved();
+      if (saleId == null && state.lastSavedSaleId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Не удалось сохранить продажу для чека')),
+          );
+        }
+        return;
+      }
+      final id = saleId ?? state.lastSavedSaleId!;
+      final bytes = ReceiptPrinterService.buildReceipt(
+        saleId: id,
+        cashierName: _cashierName,
+        items: state.cart,
+        total: state.cartTotal,
+        dateTime: DateTime.now(),
+      );
+      await ReceiptPrinterService.printReceipt(
+        printerName: widget.storage.receiptPrinterName,
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Чек отправлен на печать')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ошибка печати: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveReceiptPdf() async {
+    final state = CashierStateScope.of(context);
+    if (state.cart.isEmpty) return;
+    try {
+      final saleId = await _ensureSaleSaved();
+      if (saleId == null && state.lastSavedSaleId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Не удалось сохранить продажу для чека')),
+          );
+        }
+        return;
+      }
+      final id = saleId ?? state.lastSavedSaleId!;
+      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
+        saleId: id,
+        cashierName: _cashierName,
+        items: state.cart,
+        total: state.cartTotal,
+        dateTime: DateTime.now(),
+      );
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Сохранить чек в PDF',
+        fileName: 'chek-$id.pdf',
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+      if (!mounted) return;
+      if (path != null && path.isNotEmpty) {
+        final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
+        await File(savePath).writeAsBytes(pdfBytes);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Чек сохранён: $savePath')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
   }
 
   String _formatDate(DateTime dt) {
@@ -708,19 +849,24 @@ class _CashierScreenState extends State<CashierScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final state = CashierStateScope.of(context);
+    return ListenableBuilder(
+      listenable: state,
+      builder: (context, _) {
+        return Stack(
           children: [
-            _buildShiftBlock(context),
-            if (_error != null) _buildErrorBlock(context),
-            Expanded(child: _buildCartBlock(context)),
-            _buildActionBlock(context),
-          ],
-        ),
-        // Невидимое поле для приёма ввода со сканера штрихкодов (эмуляция клавиатуры)
-        Positioned(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildShiftBlock(context),
+                if (_currentOpenShift != null) _buildTopActions(context),
+                if (_error != null) _buildErrorBlock(context),
+                Expanded(child: _buildCartBlock(context)),
+                _buildActionBlock(context),
+              ],
+            ),
+            // Невидимое поле для приёма ввода со сканера штрихкодов (эмуляция клавиатуры)
+            Positioned(
           left: 0,
           top: 0,
           child: SizedBox(
@@ -740,6 +886,8 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
         ),
       ],
+    );
+      },
     );
   }
 
@@ -827,6 +975,34 @@ class _CashierScreenState extends State<CashierScreen> {
     );
   }
 
+  Widget _buildTopActions(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: AppColors.muted.withValues(alpha: 0.3)),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FilledButton.icon(
+            onPressed: !_isSelling ? _showAddProductDialog : null,
+            icon: const Icon(Icons.add),
+            label: const Text('Добавить вручную'),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: !_isSelling ? _showBarcodeTestDialog : null,
+            icon: const Icon(Icons.qr_code_scanner, size: 20),
+            label: const Text('Тест сканера'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildErrorBlock(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -844,9 +1020,10 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   Widget _buildCartBlock(BuildContext context) {
+    final state = CashierStateScope.of(context);
     return Container(
       color: AppColors.primaryLight.withValues(alpha: 0.3),
-      child: _cart.isEmpty
+      child: state.cart.isEmpty
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -866,9 +1043,9 @@ class _CashierScreenState extends State<CashierScreen> {
             )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _cart.length,
+              itemCount: state.cart.length,
               itemBuilder: (context, index) {
-                final item = _cart[index];
+                final item = state.cart[index];
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: Padding(
@@ -1032,11 +1209,11 @@ class _CashierScreenState extends State<CashierScreen> {
       ),
       child: Row(
         children: [
-          if (_cart.isNotEmpty)
+          if (CashierStateScope.of(context).cart.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 16),
               child: Text(
-                'Итого: ${_cartTotal.toStringAsFixed(2)} ₸',
+                'Итого: ${CashierStateScope.of(context).cartTotal.toStringAsFixed(2)} ₸',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: AppColors.primary,
@@ -1044,25 +1221,43 @@ class _CashierScreenState extends State<CashierScreen> {
               ),
             ),
           const Spacer(),
-          FilledButton.icon(
-            onPressed: _currentOpenShift != null && !_isSelling
-                ? _showAddProductDialog
-                : null,
-            icon: const Icon(Icons.add),
-            label: const Text('Добавить вручную'),
-          ),
-          const SizedBox(width: 12),
-          OutlinedButton.icon(
-            onPressed: _currentOpenShift != null && !_isSelling
-                ? _showBarcodeTestDialog
-                : null,
-            icon: const Icon(Icons.qr_code_scanner, size: 20),
-            label: const Text('Тест сканера'),
-          ),
-          const SizedBox(width: 12),
+          if (CashierStateScope.of(context).cart.isNotEmpty) ...[
+            OutlinedButton.icon(
+              onPressed: _printReceipt,
+              icon: const Icon(Icons.print, size: 20),
+              label: const Text('Печать чека'),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: _saveReceiptPdf,
+              icon: const Icon(Icons.picture_as_pdf, size: 20),
+              label: const Text('В PDF'),
+            ),
+            const SizedBox(width: 12),
+          ],
+          if (CashierStateScope.of(context).cart.isNotEmpty) ...[
+            OutlinedButton.icon(
+              onPressed: !_isResetting ? _resetCart : null,
+              icon: _isResetting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.clear_all, size: 20),
+              label: Text(_isResetting ? 'Сброс...' : 'Сброс'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+                side: const BorderSide(color: AppColors.danger),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
           FilledButton.icon(
             onPressed:
-                _currentOpenShift != null && _cart.isNotEmpty && !_isSelling
+                _currentOpenShift != null &&
+                    CashierStateScope.of(context).cart.isNotEmpty &&
+                    !_isSelling
                 ? _sell
                 : null,
             icon: _isSelling

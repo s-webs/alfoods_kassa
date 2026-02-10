@@ -1,12 +1,16 @@
 import 'sale_item.dart';
 
 class Sale {
+  static const String statusCompleted = 'completed';
+  static const String statusReturned = 'returned';
+
   final int id;
   final int? shiftId;
   final int? cashierId;
   final List<SaleItem> items;
   final int totalQty;
   final double totalPrice;
+  final String status;
   final DateTime createdAt;
 
   const Sale({
@@ -16,8 +20,11 @@ class Sale {
     required this.items,
     required this.totalQty,
     required this.totalPrice,
+    this.status = statusCompleted,
     required this.createdAt,
   });
+
+  bool get isReturned => status == statusReturned;
 
   factory Sale.fromJson(Map<String, dynamic> json) {
     final itemsList = json['items'] as List<dynamic>?;
@@ -32,6 +39,7 @@ class Sale {
           : [],
       totalQty: _parseInt(json['total_qty']),
       totalPrice: _parseDouble(json['total_price']),
+      status: json['status']?.toString() ?? statusCompleted,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'].toString())
           : DateTime.now(),

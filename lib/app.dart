@@ -11,6 +11,8 @@ import 'screens/login_screen.dart';
 import 'screens/product_form_screen.dart';
 import 'screens/products_screen.dart';
 import 'screens/sale_detail_screen.dart';
+import 'screens/sale_search_screen.dart';
+import 'screens/settings_screen.dart';
 import 'screens/shift_sales_screen.dart';
 import 'screens/shifts_list_screen.dart';
 import 'services/api_service.dart';
@@ -140,6 +142,18 @@ class App extends StatelessWidget {
               ),
             ),
             GoRoute(
+              path: '/sales/search',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: SaleSearchScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/settings',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: SettingsScreen(storage: storage),
+              ),
+            ),
+            GoRoute(
               path: '/sales/shift/:shiftId',
               pageBuilder: (context, state) {
                 final shiftId =
@@ -159,6 +173,7 @@ class App extends StatelessWidget {
                     int.tryParse(state.pathParameters['saleId'] ?? '') ?? 0;
                 return NoTransitionPage(
                   child: SaleDetailScreen(
+                    storage: storage,
                     apiService: apiService,
                     saleId: saleId,
                   ),

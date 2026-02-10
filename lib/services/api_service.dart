@@ -223,6 +223,11 @@ class ApiService {
   Future<void> deleteSale(int id) async {
     await _apiClient.dio.delete('api/sales/$id');
   }
+
+  Future<Sale> returnSale(int id) async {
+    final response = await _apiClient.dio.post('api/sales/$id/return');
+    return Sale.fromJson(response.data as Map<String, dynamic>);
+  }
 }
 
 class LoginResult {

@@ -6,6 +6,7 @@ class Storage {
   static const _keyBaseUrl = 'base_url';
   static const _keyToken = 'token';
   static const _keyUser = 'user';
+  static const _keyReceiptPrinterName = 'receipt_printer_name';
 
   final SharedPreferences _prefs;
 
@@ -33,6 +34,15 @@ class Storage {
       await _prefs.remove(_keyUser);
     } else {
       await _prefs.setString(_keyUser, jsonEncode(user));
+    }
+  }
+
+  String? get receiptPrinterName => _prefs.getString(_keyReceiptPrinterName);
+  Future<void> setReceiptPrinterName(String? name) async {
+    if (name == null) {
+      await _prefs.remove(_keyReceiptPrinterName);
+    } else {
+      await _prefs.setString(_keyReceiptPrinterName, name);
     }
   }
 

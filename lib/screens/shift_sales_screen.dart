@@ -163,12 +163,36 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
                             '${sale.totalPrice.toStringAsFixed(2)} ₸',
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          subtitle: Text(
-                            '${sale.totalQty} шт. • #${sale.id}',
-                            style: TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 12,
-                            ),
+                          subtitle: Row(
+                            children: [
+                              Text(
+                                '${sale.totalQty} шт. • #${sale.id}',
+                                style: TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              if (sale.isReturned) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.muted.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'Возврат',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: AppColors.muted,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () async {

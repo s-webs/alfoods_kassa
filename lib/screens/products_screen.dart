@@ -32,6 +32,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
     _load();
   }
 
+  /// Форматирование остатка для граммовых товаров без округления (1.5 → "1.5", 2 → "2").
+  static String _formatStock(double value) {
+    if (value == value.roundToDouble()) return value.toInt().toString();
+    final s = value.toStringAsFixed(2);
+    if (s.contains('.')) {
+      final trimmed = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+      return trimmed;
+    }
+    return s;
+  }
+
   Future<void> _load({bool silent = false}) async {
     if (!silent) {
       setState(() {
@@ -421,9 +432,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                           final stockDiscountValue =
                                               p.stock *
                                               (p.discountPrice ?? p.price);
-                                          final stockStr = p.unit == 'g'
-                                              ? p.stock.toStringAsFixed(2)
-                                              : p.stock.toStringAsFixed(0);
+                                          // Штучные — целое число, граммовые — без округления (фактическое значение)
+                                          final stockStr = p.unit == 'pcs'
+                                              ? p.stock.toStringAsFixed(0)
+                                              : _formatStock(p.stock);
                                           final isSelected =
                                               _selectedProduct?.id == p.id;
                                           final isChecked = _selectedProductIds
