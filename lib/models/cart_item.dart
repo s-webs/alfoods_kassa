@@ -1,7 +1,9 @@
+/// Позиция в корзине — снимок данных на момент добавления (название, цена).
+/// Редактирование name/price в корзине не затрагивает модель Product.
 class CartItem {
   final int productId;
-  final String name;
-  final double price;
+  String name;
+  double price;
   double quantity;
   final String unit;
 

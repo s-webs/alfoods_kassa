@@ -109,11 +109,22 @@ class _Sidebar extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.all(12),
-            child: _NavItem(
-              icon: Icons.logout,
-              label: 'Выйти',
-              isSelected: false,
-              onTap: () => onLogout(),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                icon: const Icon(Icons.logout, size: 20),
+                label: const Text('Выйти'),
+                onPressed: () => onLogout(),
+              ),
             ),
           ),
         ],

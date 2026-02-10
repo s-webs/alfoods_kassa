@@ -6,6 +6,7 @@ import '../models/cart_item.dart';
 import '../models/product.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../utils/slugify.dart';
 import '../widgets/add_product_dialog.dart';
 
 class CashierScreen extends StatefulWidget {
@@ -30,11 +31,30 @@ class _CashierScreenState extends State<CashierScreen> {
   bool _isClosingShift = false;
   bool _isSelling = false;
   String? _error;
+  final FocusNode _barcodeFocusNode = FocusNode();
+  final TextEditingController _barcodeController = TextEditingController();
+  bool _isBarcodeLoading = false;
+  int? _editingNameIndex;
+  int? _editingPriceIndex;
+  TextEditingController? _nameEditController;
+  TextEditingController? _priceEditController;
 
   @override
   void initState() {
     super.initState();
     _loadShifts();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _barcodeFocusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _barcodeFocusNode.dispose();
+    _barcodeController.dispose();
+    _nameEditController?.dispose();
+    _priceEditController?.dispose();
+    super.dispose();
   }
 
   Future<void> _loadShifts() async {
@@ -48,6 +68,10 @@ class _CashierScreenState extends State<CashierScreen> {
       setState(() {
         _shifts = shifts;
         _isLoading = false;
+        // Сбрасываем флаги открытия/закрытия смены после успешной загрузки,
+        // чтобы не оставались "залипшие" спиннеры от предыдущих операций.
+        _isOpeningShift = false;
+        _isClosingShift = false;
       });
     } catch (e) {
       if (!mounted) return;
@@ -83,9 +107,7 @@ class _CashierScreenState extends State<CashierScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Закрыть смену?'),
-        content: const Text(
-          'Вы уверены, что хотите закрыть текущую смену?',
-        ),
+        content: const Text('Вы уверены, что хотите закрыть текущую смену?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -117,20 +139,25 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
+  static double _quantityStep(String unit) =>
+      unit == 'pcs' ? 1.0 : 0.1; // штучные +1, граммовые +100 г (0.1 кг)
+
   void _addProduct(Product product) {
     setState(() {
-      final existingIndex =
-          _cart.indexWhere((c) => c.productId == product.id);
+      final step = _quantityStep(product.unit);
+      final existingIndex = _cart.indexWhere((c) => c.productId == product.id);
       if (existingIndex >= 0) {
-        _cart[existingIndex].quantity += 1;
+        _cart[existingIndex].quantity += step;
       } else {
-        _cart.add(CartItem(
-          productId: product.id,
-          name: product.name,
-          price: product.effectivePrice,
-          quantity: 1,
-          unit: product.unit,
-        ));
+        _cart.add(
+          CartItem(
+            productId: product.id,
+            name: product.name,
+            price: product.effectivePrice,
+            quantity: step,
+            unit: product.unit,
+          ),
+        );
       }
     });
   }
@@ -138,17 +165,135 @@ class _CashierScreenState extends State<CashierScreen> {
   void _updateQuantity(int index, double delta) {
     setState(() {
       final item = _cart[index];
-      item.quantity += delta;
+      final step = _quantityStep(item.unit);
+      item.quantity += delta * step;
       if (item.quantity <= 0) {
         _cart.removeAt(index);
       }
     });
   }
 
+  Future<void> _editQuantity(int index) async {
+    final item = _cart[index];
+    final isPcs = item.unit == 'pcs';
+    final initial = isPcs
+        ? item.quantity.toInt().toString()
+        : item.quantity.toStringAsFixed(2);
+
+    final controller = TextEditingController(text: initial);
+    double? parseQuantity() {
+      final v = double.tryParse(
+        controller.text.replaceFirst(',', '.').trim(),
+      );
+      if (v == null || v < 0) return null;
+      if (isPcs) return v.roundToDouble();
+      return v; // граммовые: любое число (0.15, 0.25 и т.д.)
+    }
+
+    final result = await showDialog<double>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text('Количество: ${item.name}'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: isPcs ? 'Штук' : 'Кг (0.1 = 100 г)',
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) {
+              final v = parseQuantity();
+              if (v != null) Navigator.of(ctx).pop(v);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final v = parseQuantity();
+                if (v != null) Navigator.of(ctx).pop(v);
+              },
+              child: const Text('Ок'),
+            ),
+          ],
+        );
+      },
+    );
+    if (result != null && mounted) {
+      setState(() {
+        if (result <= 0) {
+          _cart.removeAt(index);
+        } else {
+          _cart[index].quantity = result;
+        }
+      });
+    }
+  }
+
   void _removeFromCart(int index) {
     setState(() {
       _cart.removeAt(index);
     });
+  }
+
+  void _startEditName(int index) {
+    if (index < 0 || index >= _cart.length) return;
+    setState(() {
+      _editingNameIndex = index;
+      _nameEditController?.dispose();
+      _nameEditController = TextEditingController(text: _cart[index].name);
+    });
+  }
+
+  void _finishEditName({bool save = true}) {
+    final index = _editingNameIndex;
+    if (index == null || index < 0 || index >= _cart.length) return;
+    final controller = _nameEditController;
+    if (controller != null && save) {
+      final text = controller.text.trim();
+      if (text.isNotEmpty) {
+        setState(() {
+          _cart[index].name = text;
+        });
+      }
+    }
+    _nameEditController?.dispose();
+    _nameEditController = null;
+    _editingNameIndex = null;
+  }
+
+  void _startEditPrice(int index) {
+    if (index < 0 || index >= _cart.length) return;
+    setState(() {
+      _editingPriceIndex = index;
+      _priceEditController?.dispose();
+      _priceEditController = TextEditingController(
+        text: _cart[index].price.toStringAsFixed(2),
+      );
+    });
+  }
+
+  void _finishEditPrice({bool save = true}) {
+    final index = _editingPriceIndex;
+    if (index == null || index < 0 || index >= _cart.length) return;
+    final controller = _priceEditController;
+    if (controller != null && save) {
+      final text = controller.text.replaceFirst(',', '.').trim();
+      final value = double.tryParse(text);
+      if (value != null && value >= 0) {
+        setState(() {
+          _cart[index].price = value;
+        });
+      }
+    }
+    _priceEditController?.dispose();
+    _priceEditController = null;
+    _editingPriceIndex = null;
   }
 
   Future<void> _showAddProductDialog() async {
@@ -159,20 +304,364 @@ class _CashierScreenState extends State<CashierScreen> {
     if (product != null && mounted) {
       _addProduct(product);
     }
+    if (mounted) {
+      _barcodeFocusNode.requestFocus();
+    }
+  }
+
+  /// Эмуляция сканера: ввод штрихкода вручную для проверки без реального сканера.
+  Future<void> _showBarcodeTestDialog() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Тест сканера штрихкода'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Штрихкод',
+              hintText: 'Введите штрихкод товара',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => Navigator.of(ctx).pop(controller.text.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+              child: const Text('Добавить'),
+            ),
+          ],
+        );
+      },
+    );
+    if (result != null && result.isNotEmpty && mounted) {
+      _onBarcodeSubmitted(result);
+    }
+    if (mounted) {
+      _barcodeFocusNode.requestFocus();
+    }
+  }
+
+  Future<void> _onBarcodeSubmitted(String value) async {
+    final barcode = value.trim();
+    if (barcode.isEmpty) return;
+    _barcodeController.clear();
+    if (_isBarcodeLoading || !mounted) return;
+    setState(() => _isBarcodeLoading = true);
+    try {
+      final product = await widget.apiService.getProductByBarcode(barcode);
+      if (!mounted) return;
+      if (product != null) {
+        _addProduct(product);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Добавлено: ${product.name}')),
+        );
+      } else {
+        await _showBarcodeNotFoundDialog(barcode);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ошибка поиска товара')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isBarcodeLoading = false);
+    }
+  }
+
+  /// Модалка при ненайденном штрихкоде: добавить в корзину снимком или в базу Product.
+  Future<void> _showBarcodeNotFoundDialog(String barcode) async {
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Товар не найден'),
+          content: Text(
+            'Штрихкод «$barcode» не найден в каталоге. Что сделать?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop('cart'),
+              child: const Text('Добавить в корзину (только на эту продажу)'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop('product'),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+              child: const Text('Добавить товар в базу'),
+            ),
+          ],
+        );
+      },
+    );
+    if (choice == 'cart' && mounted) {
+      await _showAddSnapshotToCartDialog(barcode);
+    } else if (choice == 'product' && mounted) {
+      await _showAddProductToDbDialog(barcode);
+    }
+    if (mounted) _barcodeFocusNode.requestFocus();
+  }
+
+  /// Добавить произвольную позицию в корзину (снимок, product_id: 0).
+  Future<void> _showAddSnapshotToCartDialog(String barcode) async {
+    final nameController = TextEditingController(text: 'Товар $barcode');
+    final priceController = TextEditingController(text: '0');
+    String unit = 'pcs';
+    final quantityController = TextEditingController(text: '1');
+
+    if (!mounted) return;
+    final result = await showDialog<({String name, double price, String unit, double quantity})>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Добавить в корзину (только на эту продажу)'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Название',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: priceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Цена, ₸',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: unit,
+                      decoration: const InputDecoration(
+                        labelText: 'Единица',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'pcs', child: Text('шт')),
+                        DropdownMenuItem(value: 'g', child: Text('г')),
+                      ],
+                      onChanged: (v) => setDialogState(() => unit = v ?? 'pcs'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: quantityController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Количество',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(null),
+                  child: const Text('Отмена'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = nameController.text.trim();
+                    final price = double.tryParse(
+                      priceController.text.replaceFirst(',', '.').trim(),
+                    );
+                    final qty = double.tryParse(
+                      quantityController.text.replaceFirst(',', '.').trim(),
+                    );
+                    if (name.isNotEmpty &&
+                        price != null &&
+                        price >= 0 &&
+                        qty != null &&
+                        qty > 0) {
+                      Navigator.of(ctx).pop((
+                        name: name,
+                        price: price,
+                        unit: unit,
+                        quantity: qty,
+                      ));
+                    }
+                  },
+                  child: const Text('Добавить'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null && mounted) {
+      setState(() {
+        _cart.add(
+          CartItem(
+            productId: 0,
+            name: result.name,
+            price: result.price,
+            quantity: result.quantity,
+            unit: result.unit,
+          ),
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Позиция добавлена в корзину')),
+      );
+    }
+  }
+
+  /// Создать товар в базе и добавить его в корзину.
+  Future<void> _showAddProductToDbDialog(String barcode) async {
+    final nameController = TextEditingController(text: 'Товар $barcode');
+    final priceController = TextEditingController(text: '0');
+    String unit = 'pcs';
+
+    if (!mounted) return;
+    final productData = await showDialog<({String name, double price, String unit})>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Добавить товар в базу'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Название',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: priceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Цена, ₸',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: unit,
+                      decoration: const InputDecoration(
+                        labelText: 'Единица',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'pcs', child: Text('шт')),
+                        DropdownMenuItem(value: 'g', child: Text('г')),
+                      ],
+                      onChanged: (v) => setDialogState(() => unit = v ?? 'pcs'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Штрихкод: $barcode',
+                      style: TextStyle(fontSize: 12, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(null),
+                  child: const Text('Отмена'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = nameController.text.trim();
+                    final price = double.tryParse(
+                      priceController.text.replaceFirst(',', '.').trim(),
+                    );
+                    if (name.isNotEmpty && price != null && price >= 0) {
+                      Navigator.of(ctx).pop((
+                        name: name,
+                        price: price,
+                        unit: unit,
+                      ));
+                    }
+                  },
+                  child: const Text('Создать и добавить в корзину'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (productData == null || !mounted) return;
+
+    final baseSlug = slugify(productData.name).isEmpty
+        ? 'product-${barcode.replaceAll(RegExp(r'[^a-z0-9]'), '-')}'
+        : '${slugify(productData.name)}-$barcode';
+    final slug = '$baseSlug-${DateTime.now().millisecondsSinceEpoch}';
+    final data = <String, dynamic>{
+      'name': productData.name,
+      'slug': slug,
+      'unit': productData.unit,
+      'price': productData.price,
+      'barcode': barcode,
+      'stock': 0,
+      'is_active': true,
+    };
+
+    try {
+      final product = await widget.apiService.createProduct(data);
+      if (!mounted) return;
+      _addProduct(product);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Товар «${product.name}» создан и добавлен в корзину')),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось создать товар (проверьте slug или сеть)')),
+        );
+      }
+    }
+    if (mounted) _barcodeFocusNode.requestFocus();
   }
 
   Future<void> _sell() async {
     if (_cart.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Корзина пуста')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Корзина пуста')));
       return;
     }
     final shift = _currentOpenShift;
     if (shift == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Смена не открыта')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Смена не открыта')));
       return;
     }
 
@@ -182,19 +671,16 @@ class _CashierScreenState extends State<CashierScreen> {
     });
     try {
       final items = _cart.map((c) => c.toJson()).toList();
-      await widget.apiService.createSale(
-        shiftId: shift.id,
-        items: items,
-      );
+      await widget.apiService.createSale(shiftId: shift.id, items: items);
       if (!mounted) return;
       setState(() {
         _cart = [];
         _isSelling = false;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Продажа оформлена')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Продажа оформлена')));
       }
     } catch (e) {
       if (!mounted) return;
@@ -222,13 +708,37 @@ class _CashierScreenState extends State<CashierScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Stack(
       children: [
-        _buildShiftBlock(context),
-        if (_error != null) _buildErrorBlock(context),
-        Expanded(child: _buildCartBlock(context)),
-        _buildActionBlock(context),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildShiftBlock(context),
+            if (_error != null) _buildErrorBlock(context),
+            Expanded(child: _buildCartBlock(context)),
+            _buildActionBlock(context),
+          ],
+        ),
+        // Невидимое поле для приёма ввода со сканера штрихкодов (эмуляция клавиатуры)
+        Positioned(
+          left: 0,
+          top: 0,
+          child: SizedBox(
+            width: 1,
+            height: 1,
+            child: TextField(
+                controller: _barcodeController,
+                focusNode: _barcodeFocusNode,
+                enabled: !_isBarcodeLoading,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                  isDense: true,
+                ),
+                onSubmitted: _onBarcodeSubmitted,
+              ),
+            ),
+        ),
       ],
     );
   }
@@ -245,80 +755,75 @@ class _CashierScreenState extends State<CashierScreen> {
       child: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _currentOpenShift == null
-              ? Row(
-                  children: [
-                    Icon(Icons.schedule, color: AppColors.muted, size: 28),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Смена не открыта',
+          ? Row(
+              children: [
+                Icon(Icons.schedule, color: AppColors.muted, size: 28),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Смена не открыта',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: _isOpeningShift ? null : _openShift,
+                  icon: _isOpeningShift
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.play_arrow, size: 20),
+                  label: Text(
+                    _isOpeningShift ? 'Открытие...' : 'Открыть смену',
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Icon(Icons.check_circle, color: AppColors.accent, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Смена открыта',
                         style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w500,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _isOpeningShift ? null : _openShift,
-                      icon: _isOpeningShift
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.play_arrow, size: 20),
-                      label: Text(_isOpeningShift ? 'Открытие...' : 'Открыть смену'),
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Icon(Icons.check_circle,
-                        color: AppColors.accent, size: 28),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Смена открыта',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            'С ${_formatDate(_currentOpenShift!.openedAt)}',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        'С ${_formatDate(_currentOpenShift!.openedAt)}',
+                        style: TextStyle(fontSize: 13, color: AppColors.muted),
                       ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _isClosingShift ? null : _closeShift,
-                      icon: _isClosingShift
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : const Icon(Icons.stop_circle, size: 20),
-                      label: Text(_isClosingShift ? 'Закрытие...' : 'Закрыть смену'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.danger,
-                        side: const BorderSide(color: AppColors.danger),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+                OutlinedButton.icon(
+                  onPressed: _isClosingShift ? null : _closeShift,
+                  icon: _isClosingShift
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.stop_circle, size: 20),
+                  label: Text(
+                    _isClosingShift ? 'Закрытие...' : 'Закрыть смену',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.danger,
+                    side: const BorderSide(color: AppColors.danger),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 
@@ -330,7 +835,9 @@ class _CashierScreenState extends State<CashierScreen> {
         children: [
           Icon(Icons.error_outline, color: AppColors.danger, size: 20),
           const SizedBox(width: 8),
-          Expanded(child: Text(_error!, style: TextStyle(color: AppColors.danger))),
+          Expanded(
+            child: Text(_error!, style: TextStyle(color: AppColors.danger)),
+          ),
         ],
       ),
     );
@@ -344,20 +851,15 @@ class _CashierScreenState extends State<CashierScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.shopping_cart_outlined,
-                      size: 64, color: AppColors.muted),
+                  Icon(
+                    Icons.shopping_cart_outlined,
+                    size: 64,
+                    color: AppColors.muted,
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     'Корзина пуста',
                     style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Добавьте товары через кнопку ниже',
-                    style: TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 14,
-                    ),
                   ),
                 ],
               ),
@@ -380,21 +882,70 @@ class _CashierScreenState extends State<CashierScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                item.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 15,
-                                ),
-                              ),
+                              // Редактирование названия по клику
+                              (_editingNameIndex == index &&
+                                      _nameEditController != null)
+                                  ? TextField(
+                                      controller: _nameEditController,
+                                      autofocus: true,
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        border: OutlineInputBorder(),
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 6,
+                                        ),
+                                      ),
+                                      onSubmitted: (_) => _finishEditName(),
+                                      onEditingComplete: () => _finishEditName(),
+                                    )
+                                  : GestureDetector(
+                                      onTap: () => _startEditName(index),
+                                      child: Text(
+                                        item.name,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                    ),
                               const SizedBox(height: 4),
-                              Text(
-                                '${item.price.toStringAsFixed(2)} ₽ × ${item.quantity} ${item.unit}',
-                                style: TextStyle(
-                                  color: AppColors.muted,
-                                  fontSize: 13,
-                                ),
-                              ),
+                              // Редактирование цены по клику
+                              (_editingPriceIndex == index &&
+                                      _priceEditController != null)
+                                  ? SizedBox(
+                                      width: 140,
+                                      child: TextField(
+                                        controller: _priceEditController,
+                                        autofocus: true,
+                                        keyboardType:
+                                            const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                        decoration: const InputDecoration(
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                          contentPadding:
+                                              EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 6,
+                                          ),
+                                        ),
+                                        onSubmitted: (_) => _finishEditPrice(),
+                                        onEditingComplete: () =>
+                                            _finishEditPrice(),
+                                      ),
+                                    )
+                                  : GestureDetector(
+                                      onTap: () => _startEditPrice(index),
+                                      child: Text(
+                                        '${item.price.toStringAsFixed(2)} ₸ × ${item.quantity} ${item.unit}',
+                                        style: TextStyle(
+                                          color: AppColors.muted,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
                             ],
                           ),
                         ),
@@ -406,13 +957,32 @@ class _CashierScreenState extends State<CashierScreen> {
                               onPressed: () => _updateQuantity(index, -1),
                               iconSize: 22,
                             ),
-                            Text(
-                              item.quantity.toStringAsFixed(
-                                item.unit == 'pcs' ? 0 : 2,
-                              ),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 16,
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _editQuantity(index),
+                                borderRadius: BorderRadius.circular(8),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      minWidth: 44,
+                                    ),
+                                    child: Text(
+                                      item.quantity.toStringAsFixed(
+                                        item.unit == 'pcs' ? 0 : 2,
+                                      ),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                             IconButton(
@@ -422,15 +992,18 @@ class _CashierScreenState extends State<CashierScreen> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              '${item.total.toStringAsFixed(2)} ₽',
+                              '${item.total.toStringAsFixed(2)} ₸',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 15,
                               ),
                             ),
                             IconButton(
-                              icon: Icon(Icons.delete_outline,
-                                  color: AppColors.danger, size: 22),
+                              icon: Icon(
+                                Icons.delete_outline,
+                                color: AppColors.danger,
+                                size: 22,
+                              ),
                               onPressed: () => _removeFromCart(index),
                             ),
                           ],
@@ -463,11 +1036,11 @@ class _CashierScreenState extends State<CashierScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 16),
               child: Text(
-                'Итого: ${_cartTotal.toStringAsFixed(2)} ₽',
+                'Итого: ${_cartTotal.toStringAsFixed(2)} ₸',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.primary,
+                ),
               ),
             ),
           const Spacer(),
@@ -479,10 +1052,17 @@ class _CashierScreenState extends State<CashierScreen> {
             label: const Text('Добавить вручную'),
           ),
           const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: _currentOpenShift != null && !_isSelling
+                ? _showBarcodeTestDialog
+                : null,
+            icon: const Icon(Icons.qr_code_scanner, size: 20),
+            label: const Text('Тест сканера'),
+          ),
+          const SizedBox(width: 12),
           FilledButton.icon(
-            onPressed: _currentOpenShift != null &&
-                    _cart.isNotEmpty &&
-                    !_isSelling
+            onPressed:
+                _currentOpenShift != null && _cart.isNotEmpty && !_isSelling
                 ? _sell
                 : null,
             icon: _isSelling

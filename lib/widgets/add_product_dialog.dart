@@ -5,10 +5,7 @@ import '../models/product.dart';
 import '../services/api_service.dart';
 
 class AddProductDialog extends StatefulWidget {
-  const AddProductDialog({
-    super.key,
-    required this.apiService,
-  });
+  const AddProductDialog({super.key, required this.apiService});
 
   final ApiService apiService;
 
@@ -114,51 +111,57 @@ class _AddProductDialogState extends State<AddProductDialog> {
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.error_outline,
-                                  size: 48, color: AppColors.danger),
-                              const SizedBox(height: 16),
-                              Text(_error!),
-                            ],
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 48,
+                            color: AppColors.danger,
                           ),
-                        )
-                      : _filteredProducts.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.search_off,
-                                      size: 48, color: AppColors.muted),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'Ничего не найдено',
-                                    style: Theme.of(context).textTheme.titleMedium,
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.builder(
-                              shrinkWrap: true,
-                              itemCount: _filteredProducts.length,
-                              itemBuilder: (context, index) {
-                                final p = _filteredProducts[index];
-                                return ListTile(
-                                  title: Text(p.name),
-                                  subtitle: Text(
-                                    '${p.effectivePrice.toStringAsFixed(2)} ₽ • ${p.unit}',
-                                    style: TextStyle(
-                                      color: AppColors.muted,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  trailing: const Icon(Icons.add),
-                                  onTap: () => _selectProduct(p),
-                                );
-                              },
+                          const SizedBox(height: 16),
+                          Text(_error!),
+                        ],
+                      ),
+                    )
+                  : _filteredProducts.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.search_off,
+                            size: 48,
+                            color: AppColors.muted,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Ничего не найдено',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _filteredProducts.length,
+                      itemBuilder: (context, index) {
+                        final p = _filteredProducts[index];
+                        return ListTile(
+                          title: Text(p.name),
+                          subtitle: Text(
+                            '${p.effectivePrice.toStringAsFixed(2)} ₸ • ${p.unit}',
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 12,
                             ),
+                          ),
+                          trailing: const Icon(Icons.add),
+                          onTap: () => _selectProduct(p),
+                        );
+                      },
+                    ),
             ),
           ],
         ),

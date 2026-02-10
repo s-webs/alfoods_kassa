@@ -147,10 +147,15 @@ class ApiService {
     return Product.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<List<Product>> getProducts({bool? active, int? categoryId}) async {
+  Future<List<Product>> getProducts({
+    bool? active,
+    int? categoryId,
+    String? barcode,
+  }) async {
     final queryParams = <String, dynamic>{};
     if (active != null) queryParams['active'] = active;
     if (categoryId != null) queryParams['category_id'] = categoryId;
+    if (barcode != null && barcode.isNotEmpty) queryParams['barcode'] = barcode;
     final response = await _apiClient.dio.get(
       'api/products',
       queryParameters: queryParams.isNotEmpty ? queryParams : null,
@@ -159,6 +164,12 @@ class ApiService {
     return list
         .map((e) => Product.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Поиск товара по штрихкоду (для сканера). Возвращает null, если не найден.
+  Future<Product?> getProductByBarcode(String barcode) async {
+    final list = await getProducts(active: true, barcode: barcode.trim());
+    return list.isEmpty ? null : list.first;
   }
 
   Future<List<Sale>> getSales() async {
@@ -190,12 +201,17 @@ class ApiService {
     return Sale.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<Sale> updateSale(int id,
-      {int? cashierId, int? shiftId, int? shopperId}) async {
+  Future<Sale> updateSale(int id, {
+    int? cashierId,
+    int? shiftId,
+    int? shopperId,
+    List<Map<String, dynamic>>? items,
+  }) async {
     final data = <String, dynamic>{};
     if (cashierId != null) data['cashier_id'] = cashierId;
     if (shiftId != null) data['shift_id'] = shiftId;
     if (shopperId != null) data['shopper_id'] = shopperId;
+    if (items != null) data['items'] = items;
 
     final response = await _apiClient.dio.patch(
       'api/sales/$id',

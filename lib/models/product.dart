@@ -43,7 +43,9 @@ class Product {
     );
   }
 
-  double get effectivePrice => discountPrice ?? price;
+  /// Если discount_price задан и > 0 — используется скидочная цена, иначе — обычная.
+  double get effectivePrice =>
+      (discountPrice != null && discountPrice! > 0) ? discountPrice! : price;
 
   Map<String, dynamic> toJson() {
     final map = <String, dynamic>{
