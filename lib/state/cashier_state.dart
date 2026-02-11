@@ -17,9 +17,14 @@ class CashierState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addOrIncrementQuantity(int productId, double step, CartItem newItem) {
+  void addOrIncrementQuantity(int productId, double step, CartItem newItem, {int? setId}) {
     _lastSavedSaleId = null;
-    final i = _cart.indexWhere((c) => c.productId == productId);
+    final i = _cart.indexWhere((c) {
+      if (setId != null) {
+        return c.setId == setId;
+      }
+      return c.productId == productId;
+    });
     if (i >= 0) {
       _cart[i].quantity += step;
     } else {

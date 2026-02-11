@@ -11,6 +11,7 @@ class Product {
   final double stock;
   final double stockThreshold;
   final String unit;
+  final bool isActive;
   final Map<String, dynamic>? meta;
 
   const Product({
@@ -26,6 +27,7 @@ class Product {
     this.stock = 0,
     this.stockThreshold = 0,
     this.unit = 'pcs',
+    this.isActive = true,
     this.meta,
   });
 
@@ -58,6 +60,7 @@ class Product {
       stock: _parseDouble(json['stock']),
       stockThreshold: _parseDouble(json['stock_threshold']),
       unit: json['unit'] as String? ?? 'pcs',
+      isActive: json['is_active'] == null ? true : json['is_active'] as bool,
       meta: meta,
     );
   }
@@ -80,6 +83,7 @@ class Product {
     if (discountPrice != null) {
       map['discount_price'] = discountPrice;
     }
+    map['is_active'] = isActive;
     if (meta != null) {
       map['meta'] = meta;
     }

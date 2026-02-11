@@ -30,6 +30,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   String _searchQuery = '';
   Set<int> _selectedProductIds = {};
   bool _isLoading = true;
+  int? _togglingActiveProductId;
   String? _error;
   _ProductsSortKey _sortKey = _ProductsSortKey.id;
   bool _sortAsc = false; // по умолчанию id по убыванию (новые сверху)
@@ -183,6 +184,25 @@ class _ProductsScreenState extends State<ProductsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Не удалось удалить товары');
+    }
+  }
+
+  Future<void> _toggleProductActive(Product p) async {
+    setState(() => _togglingActiveProductId = p.id);
+    try {
+      await widget.apiService.updateProduct(p.id, {
+        'is_active': !p.isActive,
+      });
+      if (!mounted) return;
+      _load(silent: true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _togglingActiveProductId = null);
     }
   }
 
@@ -527,6 +547,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                             label: Text('Сумма'),
                                           ),
                                           const DataColumn(
+                                            label: Text('Активен'),
+                                          ),
+                                          const DataColumn(
                                             label: Text('Действия'),
                                           ),
                                         ],
@@ -679,6 +702,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                     ),
                                                   ),
                                                 ),
+                                              ),
+                                              DataCell(
+                                                _togglingActiveProductId == p.id
+                                                    ? const SizedBox(
+                                                        width: 24,
+                                                        height: 24,
+                                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                                      )
+                                                    : Switch(
+                                                        value: p.isActive,
+                                                        onChanged: (_) =>
+                                                            _toggleProductActive(p),
+                                                      ),
                                               ),
                                               DataCell(
                                                 Row(

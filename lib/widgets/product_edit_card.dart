@@ -46,6 +46,7 @@ class _ProductEditCardState extends State<ProductEditCard> {
 
   int? _selectedCategoryId;
   String _selectedUnit = 'pcs';
+  bool _isActive = true;
   bool _isSaving = false;
   String? _error;
   Uint8List? _barcodePreviewBytes;
@@ -102,6 +103,7 @@ class _ProductEditCardState extends State<ProductEditCard> {
     _barcodeController.text = p.barcode ?? '';
     _selectedCategoryId = p.categoryId;
     _selectedUnit = p.unit;
+    _isActive = p.isActive;
     _refreshBarcodePreview();
   }
 
@@ -143,7 +145,6 @@ class _ProductEditCardState extends State<ProductEditCard> {
     try {
       final data = <String, dynamic>{
         'name': name,
-        'slug': widget.product.slug,
         'category_id': _selectedCategoryId,
         'unit': _selectedUnit,
         'price': price,
@@ -156,6 +157,7 @@ class _ProductEditCardState extends State<ProductEditCard> {
             : _barcodeController.text.trim(),
         'stock': double.tryParse(_stockController.text) ?? 0,
         'stock_threshold': double.tryParse(_stockThresholdController.text) ?? 0,
+        'is_active': _isActive,
       };
       final dp = double.tryParse(_discountPriceController.text);
       if (dp != null && dp > 0) {
@@ -259,11 +261,24 @@ class _ProductEditCardState extends State<ProductEditCard> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  TextFormField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Название',
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _nameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Название',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      const Text('Активен'),
+                      const SizedBox(width: 8),
+                      Switch(
+                        value: _isActive,
+                        onChanged: (v) => setState(() => _isActive = v),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   TextFormField(

@@ -12,6 +12,8 @@ import 'screens/print_labels_screen.dart';
 import 'screens/product_form_screen.dart';
 import 'screens/products_screen.dart';
 import 'screens/sale_detail_screen.dart';
+import 'screens/set_form_screen.dart';
+import 'screens/sets_screen.dart';
 import 'screens/sale_search_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/shift_sales_screen.dart';
@@ -134,6 +136,36 @@ class App extends StatelessWidget {
                     apiService: apiService,
                     productId: id,
                     mode: ProductFormMode.edit,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/sets',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: SetsScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/sets/create',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: SetFormScreen(
+                  storage: storage,
+                  apiService: apiService,
+                  mode: SetFormMode.create,
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/sets/:id/edit',
+              pageBuilder: (context, state) {
+                final id = int.tryParse(state.pathParameters['id'] ?? '');
+                return NoTransitionPage(
+                  child: SetFormScreen(
+                    storage: storage,
+                    apiService: apiService,
+                    setId: id,
+                    mode: SetFormMode.edit,
                   ),
                 );
               },

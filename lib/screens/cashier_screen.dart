@@ -7,12 +7,12 @@ import '../core/storage.dart';
 import '../core/theme.dart';
 import '../models/cart_item.dart';
 import '../models/product.dart';
+import '../models/product_set.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
 import '../state/cashier_state.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
-import '../utils/slugify.dart';
 import '../widgets/add_product_dialog.dart';
 
 class CashierScreen extends StatefulWidget {
@@ -166,6 +166,24 @@ class _CashierScreenState extends State<CashierScreen> {
     );
   }
 
+  void _addSet(ProductSet productSet) {
+    final state = CashierStateScope.of(context);
+    const step = 1.0; // сеты всегда pcs
+    state.addOrIncrementQuantity(
+      0,
+      step,
+      CartItem(
+        productId: 0,
+        setId: productSet.id,
+        name: productSet.name,
+        price: productSet.effectivePrice,
+        quantity: step,
+        unit: 'pcs',
+      ),
+      setId: productSet.id,
+    );
+  }
+
   void _updateQuantity(int index, double delta) {
     final state = CashierStateScope.of(context);
     final item = state.cart[index];
@@ -291,12 +309,16 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   Future<void> _showAddProductDialog() async {
-    final product = await showDialog<Product>(
+    final result = await showDialog<Object>(
       context: context,
       builder: (ctx) => AddProductDialog(apiService: widget.apiService),
     );
-    if (product != null && mounted) {
-      _addProduct(product);
+    if (result != null && mounted) {
+      if (result is Product) {
+        _addProduct(result);
+      } else if (result is ProductSet) {
+        _addSet(result);
+      }
     }
     if (mounted) {
       // Восстанавливаем фокус после закрытия диалога
@@ -367,7 +389,16 @@ class _CashierScreenState extends State<CashierScreen> {
           SnackBar(content: Text('Добавлено: ${product.name}')),
         );
       } else {
-        await _showBarcodeNotFoundDialog(barcode);
+        final productSet = await widget.apiService.getSetByBarcode(barcode);
+        if (!mounted) return;
+        if (productSet != null) {
+          _addSet(productSet);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Добавлено: ${productSet.name}')),
+          );
+        } else {
+          await _showBarcodeNotFoundDialog(barcode);
+        }
       }
     } catch (_) {
       if (mounted) {
@@ -644,13 +675,8 @@ class _CashierScreenState extends State<CashierScreen> {
 
     if (productData == null || !mounted) return;
 
-    final baseSlug = slugify(productData.name).isEmpty
-        ? 'product-${barcode.replaceAll(RegExp(r'[^a-z0-9]'), '-')}'
-        : '${slugify(productData.name)}-$barcode';
-    final slug = '$baseSlug-${DateTime.now().millisecondsSinceEpoch}';
     final data = <String, dynamic>{
       'name': productData.name,
-      'slug': slug,
       'unit': productData.unit,
       'price': productData.price,
       'barcode': barcode,
@@ -668,7 +694,7 @@ class _CashierScreenState extends State<CashierScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось создать товар (проверьте slug или сеть)')),
+          const SnackBar(content: Text('Не удалось создать товар')),
         );
       }
     }

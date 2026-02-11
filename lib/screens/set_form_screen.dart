@@ -10,48 +10,53 @@ import 'package:printing/printing.dart';
 
 import '../core/storage.dart';
 import '../core/theme.dart';
-import '../models/category.dart';
 import '../models/product.dart';
+import '../models/product_set.dart';
 import '../services/api_service.dart';
 import '../services/label_pdf_service.dart';
 import '../utils/barcode_generator.dart';
 import '../utils/barcode_image_helper.dart';
+import '../widgets/add_product_to_set_dialog.dart';
 import '../widgets/label_canvas.dart';
 import '../widgets/label_style_controls.dart';
 
-class ProductFormScreen extends StatefulWidget {
-  const ProductFormScreen({
+class SetFormScreen extends StatefulWidget {
+  const SetFormScreen({
     super.key,
     required this.storage,
     required this.apiService,
-    this.productId,
-    this.mode = ProductFormMode.create,
+    this.setId,
+    this.mode = SetFormMode.create,
   });
 
   final Storage storage;
   final ApiService apiService;
-  final int? productId;
-  final ProductFormMode mode;
+  final int? setId;
+  final SetFormMode mode;
 
   @override
-  State<ProductFormScreen> createState() => _ProductFormScreenState();
+  State<SetFormScreen> createState() => _SetFormScreenState();
 }
 
-enum ProductFormMode { create, edit }
+enum SetFormMode { create, edit }
 
-class _ProductFormScreenState extends State<ProductFormScreen> {
+class _SetItem {
+  _SetItem({required this.productId, required this.productName, required this.quantity});
+
+  final int productId;
+  final String productName;
+  double quantity;
+}
+
+class _SetFormScreenState extends State<SetFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _priceController = TextEditingController();
   final _discountPriceController = TextEditingController();
-  final _stockController = TextEditingController();
-  final _stockThresholdController = TextEditingController();
   final _barcodeController = TextEditingController();
 
-  Product? _product;
-  List<Category> _categories = [];
-  int? _selectedCategoryId;
-  String _selectedUnit = 'pcs';
+  ProductSet? _set;
+  List<_SetItem> _items = [];
   bool _isActive = true;
   bool _isLoading = true;
   bool _isSaving = false;
@@ -71,7 +76,6 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   bool _isPrintingLabel = false;
   bool _isPrintingPriceTag = false;
 
-  static const List<String> _units = ['pcs', 'g'];
   static const double _minLabelSizeMm = 10;
   static const double _maxLabelSizeMm = 200;
 
@@ -97,9 +101,18 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     if (mounted) setState(() => _barcodePreviewBytes = bytes);
   }
 
-  /// Товар для превью/PDF этикетки: в режиме редактирования — загруженный, в создании — из полей формы.
-  Product get _currentProductForLabel {
-    if (_product != null) return _product!;
+  Product get _currentSetForLabel {
+    if (_set != null) {
+      return Product(
+        id: 0,
+        name: _set!.name,
+        slug: '',
+        barcode: _set!.barcode,
+        price: _set!.price,
+        discountPrice: _set!.discountPrice,
+        unit: 'pcs',
+      );
+    }
     final price = double.tryParse(_priceController.text) ?? 0;
     final discountPrice = double.tryParse(_discountPriceController.text);
     final barcodeStr = _barcodeController.text.trim();
@@ -110,14 +123,14 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       barcode: barcodeStr.isEmpty ? null : barcodeStr,
       price: price,
       discountPrice: discountPrice,
-      unit: _selectedUnit,
+      unit: 'pcs',
     );
   }
 
   Future<void> _saveLabelJpg() async {
     setState(() => _isSavingLabel = true);
     try {
-      final product = _currentProductForLabel;
+      final product = _currentSetForLabel;
       final bytes = await LabelPdfService.buildLabelJpg(
         product: product,
         blockLayout: _labelBlockLayout,
@@ -157,7 +170,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   Future<void> _savePriceTagJpg() async {
     setState(() => _isSavingPriceTag = true);
     try {
-      final product = _currentProductForLabel;
+      final product = _currentSetForLabel;
       final bytes = await LabelPdfService.buildLabelJpg(
         product: product,
         blockLayout: _priceTagBlockLayout,
@@ -197,7 +210,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   Future<void> _printLabel() async {
     setState(() => _isPrintingLabel = true);
     try {
-      final product = _currentProductForLabel;
+      final product = _currentSetForLabel;
       final bytes = await LabelPdfService.buildLabelPdf(
         products: [product],
         blockLayout: _labelBlockLayout,
@@ -225,7 +238,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   Future<void> _printPriceTag() async {
     setState(() => _isPrintingPriceTag = true);
     try {
-      final product = _currentProductForLabel;
+      final product = _currentSetForLabel;
       final bytes = await LabelPdfService.buildLabelPdf(
         products: [product],
         blockLayout: _priceTagBlockLayout,
@@ -257,10 +270,74 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     _nameController.dispose();
     _priceController.dispose();
     _discountPriceController.dispose();
-    _stockController.dispose();
-    _stockThresholdController.dispose();
     _barcodeController.dispose();
     super.dispose();
+  }
+
+  LabelTemplate _templateFromMetaOrStorage(
+    dynamic metaVal,
+    Map<String, dynamic>? storageJson,
+    LabelTemplate Function() defaultFn,
+  ) {
+    if (metaVal is Map<String, dynamic>) {
+      return LabelTemplate.fromJson(metaVal);
+    }
+    if (metaVal is Map) {
+      return LabelTemplate.fromJson(Map<String, dynamic>.from(metaVal as Map));
+    }
+    if (storageJson != null) {
+      return LabelTemplate.fromJson(storageJson);
+    }
+    return defaultFn();
+  }
+
+  bool _templateDiffers(LabelTemplate a, LabelTemplate b) {
+    if (a.widthMm != b.widthMm || a.heightMm != b.heightMm) return true;
+    if (a.style.nameFontSize != b.style.nameFontSize ||
+        a.style.priceFontSize != b.style.priceFontSize ||
+        a.style.barcodeWidthFactor != b.style.barcodeWidthFactor ||
+        a.style.barcodeHeightFactor != b.style.barcodeHeightFactor) {
+      return true;
+    }
+    if (a.blockLayout.length != b.blockLayout.length) return true;
+    for (var i = 0; i < a.blockLayout.length; i++) {
+      final la = a.blockLayout[i];
+      final lb = b.blockLayout[i];
+      if (la.type != lb.type || la.x != lb.x || la.y != lb.y) return true;
+    }
+    return false;
+  }
+
+  Map<String, dynamic>? _buildMetaIfOverridden() {
+    final defaultLabel = _templateFromMetaOrStorage(
+      null,
+      widget.storage.labelTemplateJson,
+      LabelTemplate.defaultLabel,
+    );
+    final defaultPriceTag = _templateFromMetaOrStorage(
+      null,
+      widget.storage.priceTagTemplateJson,
+      LabelTemplate.defaultPriceTag,
+    );
+    final labelTpl = LabelTemplate(
+      blockLayout: _labelBlockLayout,
+      style: _labelStyle,
+      widthMm: _labelWidthMm,
+      heightMm: _labelHeightMm,
+    );
+    final priceTagTpl = LabelTemplate(
+      blockLayout: _priceTagBlockLayout,
+      style: _priceTagStyle,
+      widthMm: _priceTagWidthMm,
+      heightMm: _priceTagHeightMm,
+    );
+    final labelDiff = _templateDiffers(labelTpl, defaultLabel);
+    final priceTagDiff = _templateDiffers(priceTagTpl, defaultPriceTag);
+    if (!labelDiff && !priceTagDiff) return null;
+    final meta = <String, dynamic>{};
+    if (labelDiff) meta['label'] = labelTpl.toJson();
+    if (priceTagDiff) meta['priceTag'] = priceTagTpl.toJson();
+    return meta;
   }
 
   Future<void> _loadData() async {
@@ -269,34 +346,33 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       _error = null;
     });
     try {
-      final categories = await widget.apiService.getCategories();
-      if (!mounted) return;
-      setState(() => _categories = categories);
-
-      if (widget.mode == ProductFormMode.edit && widget.productId != null) {
-        final p = await widget.apiService.getProduct(widget.productId!);
+      if (widget.mode == SetFormMode.edit && widget.setId != null) {
+        final s = await widget.apiService.getSet(widget.setId!);
         if (!mounted) return;
         final labelTpl = _templateFromMetaOrStorage(
-          p.meta?['label'],
+          s.meta?['label'],
           widget.storage.labelTemplateJson,
           LabelTemplate.defaultLabel,
         );
         final priceTagTpl = _templateFromMetaOrStorage(
-          p.meta?['priceTag'],
+          s.meta?['priceTag'],
           widget.storage.priceTagTemplateJson,
           LabelTemplate.defaultPriceTag,
         );
         setState(() {
-          _product = p;
-          _nameController.text = p.name;
-          _priceController.text = p.price.toString();
-          _discountPriceController.text = p.discountPrice?.toString() ?? '';
-          _stockController.text = p.stock.toString();
-          _stockThresholdController.text = p.stockThreshold.toString();
-          _barcodeController.text = p.barcode ?? '';
-          _selectedCategoryId = p.categoryId;
-          _selectedUnit = p.unit;
-          _isActive = p.isActive;
+          _set = s;
+          _nameController.text = s.name;
+          _priceController.text = s.price.toString();
+          _discountPriceController.text = s.discountPrice?.toString() ?? '';
+          _barcodeController.text = s.barcode ?? '';
+          _isActive = s.isActive;
+          _items = s.items
+              .map((i) => _SetItem(
+                    productId: i.productId,
+                    productName: i.product?.name ?? 'ID:${i.productId}',
+                    quantity: i.quantity,
+                  ))
+              .toList();
           _labelBlockLayout = labelTpl.blockLayout;
           _labelWidthMm = labelTpl.widthMm;
           _labelHeightMm = labelTpl.heightMm;
@@ -340,70 +416,45 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     }
   }
 
-  Map<String, dynamic>? _buildMetaIfOverridden() {
-    final defaultLabel = _templateFromMetaOrStorage(
-      null,
-      widget.storage.labelTemplateJson,
-      LabelTemplate.defaultLabel,
+  Future<void> _addProduct() async {
+    final result = await showDialog<AddProductToSetResult>(
+      context: context,
+      builder: (ctx) => AddProductToSetDialog(
+        apiService: widget.apiService,
+        excludedProductIds: {},
+      ),
     );
-    final defaultPriceTag = _templateFromMetaOrStorage(
-      null,
-      widget.storage.priceTagTemplateJson,
-      LabelTemplate.defaultPriceTag,
-    );
-    final labelTpl = LabelTemplate(
-      blockLayout: _labelBlockLayout,
-      style: _labelStyle,
-      widthMm: _labelWidthMm,
-      heightMm: _labelHeightMm,
-    );
-    final priceTagTpl = LabelTemplate(
-      blockLayout: _priceTagBlockLayout,
-      style: _priceTagStyle,
-      widthMm: _priceTagWidthMm,
-      heightMm: _priceTagHeightMm,
-    );
-    final labelDiff = _templateDiffers(labelTpl, defaultLabel);
-    final priceTagDiff = _templateDiffers(priceTagTpl, defaultPriceTag);
-    if (!labelDiff && !priceTagDiff) return null;
-    final meta = <String, dynamic>{};
-    if (labelDiff) meta['label'] = labelTpl.toJson();
-    if (priceTagDiff) meta['priceTag'] = priceTagTpl.toJson();
-    return meta;
+    if (result != null && mounted) {
+      setState(() {
+        final existing = _items.indexWhere((i) => i.productId == result.product.id);
+        if (existing >= 0) {
+          _items[existing].quantity += result.quantity;
+        } else {
+          _items.add(_SetItem(
+            productId: result.product.id,
+            productName: result.product.name,
+            quantity: result.quantity,
+          ));
+        }
+      });
+    }
   }
 
-  bool _templateDiffers(LabelTemplate a, LabelTemplate b) {
-    if (a.widthMm != b.widthMm || a.heightMm != b.heightMm) return true;
-    if (a.style.nameFontSize != b.style.nameFontSize ||
-        a.style.priceFontSize != b.style.priceFontSize ||
-        a.style.barcodeWidthFactor != b.style.barcodeWidthFactor ||
-        a.style.barcodeHeightFactor != b.style.barcodeHeightFactor) {
-      return true;
-    }
-    if (a.blockLayout.length != b.blockLayout.length) return true;
-    for (var i = 0; i < a.blockLayout.length; i++) {
-      final la = a.blockLayout[i];
-      final lb = b.blockLayout[i];
-      if (la.type != lb.type || la.x != lb.x || la.y != lb.y) return true;
-    }
-    return false;
+  void _removeItem(int index) {
+    setState(() => _items.removeAt(index));
   }
 
-  LabelTemplate _templateFromMetaOrStorage(
-    dynamic metaVal,
-    Map<String, dynamic>? storageJson,
-    LabelTemplate Function() defaultFn,
-  ) {
-    if (metaVal is Map<String, dynamic>) {
-      return LabelTemplate.fromJson(metaVal);
+  List<Map<String, dynamic>> _mergeItemsByProductId() {
+    final map = <int, double>{};
+    for (final item in _items) {
+      map[item.productId] = (map[item.productId] ?? 0) + item.quantity;
     }
-    if (metaVal is Map) {
-      return LabelTemplate.fromJson(Map<String, dynamic>.from(metaVal as Map));
-    }
-    if (storageJson != null) {
-      return LabelTemplate.fromJson(storageJson);
-    }
-    return defaultFn();
+    return map.entries
+        .map((e) => {
+              'product_id': e.key,
+              'quantity': e.value,
+            })
+        .toList();
   }
 
   Future<void> _save() async {
@@ -417,6 +468,12 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       );
       return;
     }
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Добавьте хотя бы один товар в сет')),
+      );
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -425,28 +482,25 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     try {
       final data = <String, dynamic>{
         'name': name,
-        'category_id': _selectedCategoryId,
-        'unit': _selectedUnit,
         'price': price,
         'barcode': _barcodeController.text.trim().isEmpty
             ? null
             : _barcodeController.text.trim(),
-        'stock': double.tryParse(_stockController.text) ?? 0,
-        'stock_threshold': double.tryParse(_stockThresholdController.text) ?? 0,
         'is_active': _isActive,
+        'items': _mergeItemsByProductId(),
       };
       final dp = double.tryParse(_discountPriceController.text);
       if (dp != null && dp > 0) {
         data['discount_price'] = dp;
       }
-      if (widget.mode == ProductFormMode.edit && widget.productId != null) {
+      if (widget.mode == SetFormMode.edit && widget.setId != null) {
         final meta = _buildMetaIfOverridden();
         if (meta != null && meta.isNotEmpty) {
           data['meta'] = meta;
         }
-        await widget.apiService.updateProduct(widget.productId!, data);
+        await widget.apiService.updateSet(widget.setId!, data);
       } else {
-        await widget.apiService.createProduct(data);
+        await widget.apiService.createSet(data);
       }
       if (!mounted) return;
       context.pop(true);
@@ -462,13 +516,13 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   }
 
   Future<void> _delete() async {
-    if (widget.productId == null) return;
+    if (widget.setId == null) return;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Удалить товар?'),
+        title: const Text('Удалить сет?'),
         content: Text(
-          'Товар «${_product?.name ?? ''}» будет удалён безвозвратно.',
+          'Сет «${_set?.name ?? ''}» будет удалён безвозвратно.',
         ),
         actions: [
           TextButton(
@@ -490,7 +544,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       _error = null;
     });
     try {
-      await widget.apiService.deleteProduct(widget.productId!);
+      await widget.apiService.deleteSet(widget.setId!);
       if (!mounted) return;
       context.pop(true);
     } catch (e) {
@@ -506,15 +560,15 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Товар')),
+        appBar: AppBar(title: const Text('Сет')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
     if (_error != null &&
-        _product == null &&
-        widget.mode == ProductFormMode.edit) {
+        _set == null &&
+        widget.mode == SetFormMode.edit) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Товар')),
+        appBar: AppBar(title: const Text('Сет')),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -536,9 +590,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.mode == ProductFormMode.edit
-              ? 'Редактирование'
-              : 'Новый товар',
+          widget.mode == SetFormMode.edit ? 'Редактирование сета' : 'Новый сет',
         ),
       ),
       body: SingleChildScrollView(
@@ -580,33 +632,6 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                     (v == null || v.trim().isEmpty) ? 'Обязательное поле' : null,
               ),
               const SizedBox(height: 16),
-            DropdownButtonFormField<int?>(
-              initialValue: _selectedCategoryId,
-                decoration: const InputDecoration(labelText: 'Категория'),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('Без категории')),
-                  ..._categories.map(
-                    (c) => DropdownMenuItem(
-                      value: c.id,
-                      child: Text(c.name),
-                    ),
-                  ),
-                ],
-                onChanged: (v) => setState(() => _selectedCategoryId = v),
-              ),
-              const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: _selectedUnit,
-                decoration: const InputDecoration(labelText: 'Единица'),
-                items: _units
-                    .map((u) => DropdownMenuItem(
-                          value: u,
-                          child: Text(u == 'pcs' ? 'шт.' : 'г'),
-                        ))
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedUnit = v ?? 'pcs'),
-              ),
-              const SizedBox(height: 16),
               Row(
                 children: [
                   const Text('Активен'),
@@ -639,24 +664,6 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Цена со скидкой',
                   hintText: '0.00 (необязательно)',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _stockController,
-                decoration: const InputDecoration(
-                  labelText: 'Остаток',
-                  hintText: '0',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _stockThresholdController,
-                decoration: const InputDecoration(
-                  labelText: 'Порог остатков',
-                  hintText: '0',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
               ),
@@ -696,6 +703,57 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                   fit: BoxFit.contain,
                 ),
               ],
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Text(
+                    'Состав сета',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _addProduct,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Добавить товар'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_items.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: AppColors.muted.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.muted.withValues(alpha: 0.3)),
+                  ),
+                  child: Center(
+                    child: Text(
+                      'Нет товаров в сете',
+                      style: TextStyle(color: AppColors.muted),
+                    ),
+                  ),
+                )
+              else
+                ..._items.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final item = entry.value;
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      title: Text(item.productName),
+                      subtitle: Text(
+                        '× ${item.quantity.toStringAsFixed(item.quantity == item.quantity.roundToDouble() ? 0 : 2)}',
+                      ),
+                      trailing: IconButton(
+                        icon: Icon(Icons.remove_circle_outline, color: AppColors.danger),
+                        onPressed: () => _removeItem(i),
+                      ),
+                    ),
+                  );
+                }),
               const SizedBox(height: 24),
               ExpansionTile(
                 title: const Text('Конструктор этикетки', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -749,7 +807,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                     ),
                   ),
                   LabelCanvas(
-                    product: _currentProductForLabel,
+                    product: _currentSetForLabel,
                     blockLayout: _labelBlockLayout,
                     widthMm: _labelWidthMm,
                     heightMm: _labelHeightMm,
@@ -840,7 +898,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                     ),
                   ),
                   LabelCanvas(
-                    product: _currentProductForLabel,
+                    product: _currentSetForLabel,
                     blockLayout: _priceTagBlockLayout,
                     widthMm: _priceTagWidthMm,
                     heightMm: _priceTagHeightMm,
@@ -890,7 +948,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                       )
                     : const Text('Сохранить'),
               ),
-              if (widget.mode == ProductFormMode.edit) ...[
+              if (widget.mode == SetFormMode.edit) ...[
                 const SizedBox(height: 12),
                 OutlinedButton(
                   onPressed: _isSaving ? null : _delete,

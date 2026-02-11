@@ -5,6 +5,7 @@ import '../core/storage.dart';
 import '../models/category.dart';
 import '../models/cashier.dart';
 import '../models/product.dart';
+import '../models/product_set.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
 import '../models/user.dart';
@@ -170,6 +171,48 @@ class ApiService {
   Future<Product?> getProductByBarcode(String barcode) async {
     final list = await getProducts(active: true, barcode: barcode.trim());
     return list.isEmpty ? null : list.first;
+  }
+
+  Future<List<ProductSet>> getSets({
+    bool? active,
+    String? barcode,
+  }) async {
+    final queryParams = <String, dynamic>{};
+    if (active != null) queryParams['active'] = active;
+    if (barcode != null && barcode.isNotEmpty) queryParams['barcode'] = barcode;
+    final response = await _apiClient.dio.get(
+      'api/sets',
+      queryParameters: queryParams.isNotEmpty ? queryParams : null,
+    );
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => ProductSet.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ProductSet> getSet(int id) async {
+    final response = await _apiClient.dio.get('api/sets/$id');
+    return ProductSet.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// Поиск сета по штрихкоду. Возвращает null, если не найден.
+  Future<ProductSet?> getSetByBarcode(String barcode) async {
+    final list = await getSets(active: true, barcode: barcode.trim());
+    return list.isEmpty ? null : list.first;
+  }
+
+  Future<ProductSet> createSet(Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.post('api/sets', data: data);
+    return ProductSet.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<ProductSet> updateSet(int id, Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.patch('api/sets/$id', data: data);
+    return ProductSet.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteSet(int id) async {
+    await _apiClient.dio.delete('api/sets/$id');
   }
 
   Future<List<Sale>> getSales() async {
