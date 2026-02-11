@@ -8,6 +8,7 @@ import 'screens/cashier_screen.dart';
 import 'screens/categories_screen.dart';
 import 'screens/category_form_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/print_labels_screen.dart';
 import 'screens/product_form_screen.dart';
 import 'screens/products_screen.dart';
 import 'screens/sale_detail_screen.dart';
@@ -117,6 +118,7 @@ class App extends StatelessWidget {
               path: '/products/create',
               pageBuilder: (context, state) => NoTransitionPage(
                 child: ProductFormScreen(
+                  storage: storage,
                   apiService: apiService,
                   mode: ProductFormMode.create,
                 ),
@@ -128,9 +130,38 @@ class App extends StatelessWidget {
                 final id = int.tryParse(state.pathParameters['id'] ?? '');
                 return NoTransitionPage(
                   child: ProductFormScreen(
+                    storage: storage,
                     apiService: apiService,
                     productId: id,
                     mode: ProductFormMode.edit,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/products/print-labels',
+              pageBuilder: (context, state) {
+                final ids = state.extra as List<int>?;
+                return NoTransitionPage(
+                  child: PrintLabelsScreen(
+                    storage: storage,
+                    apiService: apiService,
+                    initialProductIds: ids,
+                    mode: PrintLabelsMode.labels,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/products/print-price-tags',
+              pageBuilder: (context, state) {
+                final ids = state.extra as List<int>?;
+                return NoTransitionPage(
+                  child: PrintLabelsScreen(
+                    storage: storage,
+                    apiService: apiService,
+                    initialProductIds: ids,
+                    mode: PrintLabelsMode.priceTags,
                   ),
                 );
               },
@@ -150,7 +181,10 @@ class App extends StatelessWidget {
             GoRoute(
               path: '/settings',
               pageBuilder: (context, state) => NoTransitionPage(
-                child: SettingsScreen(storage: storage),
+                child: SettingsScreen(
+                  storage: storage,
+                  apiService: apiService,
+                ),
               ),
             ),
             GoRoute(

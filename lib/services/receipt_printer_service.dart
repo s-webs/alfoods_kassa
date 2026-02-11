@@ -1,8 +1,12 @@
 import 'dart:typed_data';
 
+import 'package:pdf/pdf.dart';
+import 'package:printing/printing.dart';
 import 'package:windows_printer/windows_printer.dart';
 
 import '../models/cart_item.dart';
+import '../services/receipt_pdf_service.dart';
+import 'pdf_printer_plugin.dart';
 
 /// Печать товарного чека на термопринтер 80мм в формате Almaty Foods.
 class ReceiptPrinterService {
@@ -115,24 +119,65 @@ class ReceiptPrinterService {
   }
 
   /// Печатает чек на выбранном принтере (Windows).
+  /// [printMode] может быть:
+  ///   - 'raw' (RAW печать на термопринтер)
+  ///   - 'pdf' (обычная печать через системный диалог)
+  ///   - 'pdf_direct' (прямая печать PDF без диалога)
   static Future<void> printReceipt({
     required String? printerName,
     required List<int> bytes,
+    required String printMode,
+    required int saleId,
+    required String cashierName,
+    required List<CartItem> items,
+    required double total,
+    required DateTime dateTime,
   }) async {
-    final printers = await WindowsPrinter.getAvailablePrinters();
-    final name = printerName != null &&
-            printerName.isNotEmpty &&
-            printers.contains(printerName)
-        ? printerName
-        : (printers.isNotEmpty ? printers.first : null);
-    if (name == null) {
-      throw Exception('Нет доступных принтеров');
+    if (printMode == 'pdf_direct') {
+      // Прямая печать PDF без диалогового окна
+      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
+        saleId: saleId,
+        cashierName: cashierName,
+        items: items,
+        total: total,
+        dateTime: dateTime,
+      );
+      final success = await PdfPrinterPlugin.printPdf(
+        pdfBytes: pdfBytes,
+        printerName: printerName,
+      );
+      if (!success) {
+        throw Exception('Не удалось отправить PDF на печать');
+      }
+    } else if (printMode == 'pdf') {
+      // Печать через системный диалог печати PDF
+      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
+        saleId: saleId,
+        cashierName: cashierName,
+        items: items,
+        total: total,
+        dateTime: dateTime,
+      );
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+      );
+    } else {
+      // RAW печать (по умолчанию)
+      final printers = await WindowsPrinter.getAvailablePrinters();
+      final name = printerName != null &&
+              printerName.isNotEmpty &&
+              printers.contains(printerName)
+          ? printerName
+          : (printers.isNotEmpty ? printers.first : null);
+      if (name == null) {
+        throw Exception('Нет доступных принтеров');
+      }
+      await WindowsPrinter.printRawData(
+        printerName: name,
+        data: Uint8List.fromList(bytes),
+        useRawDatatype: true,
+      );
     }
-    await WindowsPrinter.printRawData(
-      printerName: name,
-      data: Uint8List.fromList(bytes),
-      useRawDatatype: true,
-    );
   }
 
   /// Возвращает список имён принтеров (Windows).

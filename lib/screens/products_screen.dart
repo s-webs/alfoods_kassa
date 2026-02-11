@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -5,6 +8,7 @@ import '../core/theme.dart';
 import '../models/category.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../services/label_pdf_service.dart';
 import '../widgets/product_edit_card.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -16,7 +20,7 @@ class ProductsScreen extends StatefulWidget {
   State<ProductsScreen> createState() => _ProductsScreenState();
 }
 
-enum _ProductsSortKey { id, name, price, purchasePrice }
+enum _ProductsSortKey { id, name, stock, price, purchasePrice }
 
 class _ProductsScreenState extends State<ProductsScreen> {
   List<Product> _products = [];
@@ -97,6 +101,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
       case _ProductsSortKey.name:
         cmp = a.name.compareTo(b.name);
         break;
+      case _ProductsSortKey.stock:
+        cmp = a.stock.compareTo(b.stock);
+        break;
       case _ProductsSortKey.price:
         cmp = a.price.compareTo(b.price);
         break;
@@ -113,7 +120,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         _sortAsc = !_sortAsc;
       } else {
         _sortKey = key;
-        _sortAsc = (key == _ProductsSortKey.name);
+        _sortAsc = (key == _ProductsSortKey.name || key == _ProductsSortKey.stock);
       }
     });
   }
@@ -229,6 +236,40 @@ class _ProductsScreenState extends State<ProductsScreen> {
     _load();
   }
 
+  Future<void> _exportLowStockPdf() async {
+    final lowStock = _products.where((p) => p.stock <= p.stockThreshold).toList();
+    if (lowStock.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Нет заканчивающихся товаров')),
+      );
+      return;
+    }
+    try {
+      final bytes = await LabelPdfService.buildLowStockReportPdf(lowStock);
+      if (!mounted) return;
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Сохранить PDF',
+        fileName: 'zakanchivayushchiesya-tovary.pdf',
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+      if (path != null) {
+        final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
+        await File(savePath).writeAsBytes(bytes);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Сохранено: $savePath')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = _searchQuery.trim().toLowerCase();
@@ -260,16 +301,31 @@ class _ProductsScreenState extends State<ProductsScreen> {
           ),
           child: Row(
             children: [
-              Expanded(
-                child: Text(
-                  _selectedProductIds.isEmpty
-                      ? 'Товары'
-                      : 'Выбрано: ${_selectedProductIds.length}',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+              if (_categories.isNotEmpty)
+                PopupMenuButton<int?>(
+                  onSelected: _onCategoryChanged,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.filter_list),
+                        const SizedBox(width: 8),
+                        Text(_categoryFilterName),
+                      ],
+                    ),
+                  ),
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: _allCategoriesId,
+                      child: const Text('Все категории'),
+                    ),
+                    ..._categories.map(
+                      (c) => PopupMenuItem(value: c.id, child: Text(c.name)),
+                    ),
+                  ],
                 ),
-              ),
+              if (_categories.isNotEmpty) const SizedBox(width: 8),
               SizedBox(
                 width: 260,
                 child: TextField(
@@ -287,6 +343,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
               ),
               const SizedBox(width: 8),
               if (_selectedProductIds.isNotEmpty) ...[
+                Text(
+                  'Выбрано: ${_selectedProductIds.length}',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.muted,
+                  ),
+                ),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: () {
                     setState(() {
@@ -317,30 +381,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 label: const Text('Добавить'),
               ),
               const SizedBox(width: 8),
-              if (_categories.isNotEmpty)
-                PopupMenuButton<int?>(
-                  onSelected: _onCategoryChanged,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.filter_list),
-                        const SizedBox(width: 8),
-                        Text(_categoryFilterName),
-                      ],
-                    ),
-                  ),
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: _allCategoriesId,
-                      child: const Text('Все категории'),
-                    ),
-                    ..._categories.map(
-                      (c) => PopupMenuItem(value: c.id, child: Text(c.name)),
-                    ),
-                  ],
-                ),
+              OutlinedButton.icon(
+                onPressed: _exportLowStockPdf,
+                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                label: const Text('PDF заканчивающихся'),
+              ),
             ],
           ),
         ),
@@ -463,8 +508,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                           DataColumn(
                                             label: _sortHeader('Название', _ProductsSortKey.name),
                                           ),
-                                          const DataColumn(
-                                            label: Text('Остатки'),
+                                          DataColumn(
+                                            label: _sortHeader('Остатки', _ProductsSortKey.stock),
                                           ),
                                           DataColumn(
                                             label: _sortHeader('Цена закупа', _ProductsSortKey.purchasePrice),
@@ -548,7 +593,30 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                               ),
                                               DataCell(Text('${p.id}')),
                                               DataCell(Text(p.name)),
-                                              DataCell(Text(stockStr)),
+                                              DataCell(
+                                                p.stock <= p.stockThreshold
+                                                    ? Container(
+                                                        padding: const EdgeInsets.symmetric(
+                                                          horizontal: 10,
+                                                          vertical: 4,
+                                                        ),
+                                                        decoration: BoxDecoration(
+                                                          color: AppColors.danger.withValues(alpha: 0.15),
+                                                          borderRadius: BorderRadius.circular(8),
+                                                          border: Border.all(
+                                                            color: AppColors.danger.withValues(alpha: 0.5),
+                                                          ),
+                                                        ),
+                                                        child: Text(
+                                                          stockStr,
+                                                          style: const TextStyle(
+                                                            color: AppColors.danger,
+                                                            fontWeight: FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                      )
+                                                    : Text(stockStr),
+                                              ),
                                               DataCell(
                                                 Text(
                                                   p.purchasePrice

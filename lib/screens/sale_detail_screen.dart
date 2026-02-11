@@ -467,10 +467,11 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   }
 
   Future<void> _printReceipt() async {
-    if (!Platform.isWindows) {
+    final printMode = widget.storage.receiptPrintMode;
+    if ((printMode == 'raw' || printMode == 'pdf_direct') && !Platform.isWindows) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Печать чеков доступна только на Windows'),
+          content: Text('RAW и PDF Direct печать доступны только на Windows'),
         ),
       );
       return;
@@ -484,20 +485,35 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     final cashiersMatch = _cashiers.where((c) => c.id == _selectedCashierId).toList();
     final cashierName = cashiersMatch.isNotEmpty ? cashiersMatch.first.name : '—';
     try {
+      final dateTime = _sale?.createdAt ?? DateTime.now();
       final bytes = ReceiptPrinterService.buildReceipt(
         saleId: widget.saleId,
         cashierName: cashierName,
         items: _items,
         total: _itemsTotal,
-        dateTime: _sale?.createdAt ?? DateTime.now(),
+        dateTime: dateTime,
       );
       await ReceiptPrinterService.printReceipt(
         printerName: widget.storage.receiptPrinterName,
         bytes: bytes,
+        printMode: printMode,
+        saleId: widget.saleId,
+        cashierName: cashierName,
+        items: _items,
+        total: _itemsTotal,
+        dateTime: dateTime,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Чек отправлен на печать')),
+        SnackBar(
+          content: Text(
+            printMode == 'pdf'
+                ? 'Открыт диалог печати'
+                : printMode == 'pdf_direct'
+                    ? 'PDF отправлен на печать'
+                    : 'Чек отправлен на печать',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;

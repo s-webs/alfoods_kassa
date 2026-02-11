@@ -299,7 +299,12 @@ class _CashierScreenState extends State<CashierScreen> {
       _addProduct(product);
     }
     if (mounted) {
-      _barcodeFocusNode.requestFocus();
+      // Восстанавливаем фокус после закрытия диалога
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _barcodeFocusNode.canRequestFocus) {
+          _barcodeFocusNode.requestFocus();
+        }
+      });
     }
   }
 
@@ -336,9 +341,14 @@ class _CashierScreenState extends State<CashierScreen> {
     );
     if (result != null && result.isNotEmpty && mounted) {
       _onBarcodeSubmitted(result);
-    }
-    if (mounted) {
-      _barcodeFocusNode.requestFocus();
+      // Фокус будет восстановлен в _onBarcodeSubmitted, поэтому здесь не нужно
+    } else if (mounted) {
+      // Если диалог закрыт без результата, восстанавливаем фокус
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _barcodeFocusNode.canRequestFocus) {
+          _barcodeFocusNode.requestFocus();
+        }
+      });
     }
   }
 
@@ -367,6 +377,14 @@ class _CashierScreenState extends State<CashierScreen> {
       }
     } finally {
       if (mounted) setState(() => _isBarcodeLoading = false);
+      // Восстанавливаем фокус после завершения обработки
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _barcodeFocusNode.canRequestFocus) {
+            _barcodeFocusNode.requestFocus();
+          }
+        });
+      }
     }
   }
 
@@ -404,8 +422,15 @@ class _CashierScreenState extends State<CashierScreen> {
       await _showAddSnapshotToCartDialog(barcode);
     } else if (choice == 'product' && mounted) {
       await _showAddProductToDbDialog(barcode);
+      // Фокус будет восстановлен в _showAddProductToDbDialog
+    } else if (mounted) {
+      // Если диалог закрыт без выбора, восстанавливаем фокус
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _barcodeFocusNode.canRequestFocus) {
+          _barcodeFocusNode.requestFocus();
+        }
+      });
     }
-    if (mounted) _barcodeFocusNode.requestFocus();
   }
 
   /// Добавить произвольную позицию в корзину (снимок, product_id: 0).
@@ -521,6 +546,14 @@ class _CashierScreenState extends State<CashierScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Позиция добавлена в корзину')),
       );
+    }
+    if (mounted) {
+      // Восстанавливаем фокус после закрытия диалога добавления снимка
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _barcodeFocusNode.canRequestFocus) {
+          _barcodeFocusNode.requestFocus();
+        }
+      });
     }
   }
 
@@ -639,7 +672,14 @@ class _CashierScreenState extends State<CashierScreen> {
         );
       }
     }
-    if (mounted) _barcodeFocusNode.requestFocus();
+    if (mounted) {
+      // Восстанавливаем фокус после закрытия диалога создания товара
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _barcodeFocusNode.canRequestFocus) {
+          _barcodeFocusNode.requestFocus();
+        }
+      });
+    }
   }
 
   Future<void> _sell() async {
@@ -648,6 +688,7 @@ class _CashierScreenState extends State<CashierScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Корзина пуста')),
       );
+      _refocusBarcodeField();
       return;
     }
     final shift = _currentOpenShift;
@@ -655,6 +696,7 @@ class _CashierScreenState extends State<CashierScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Смена не открыта')),
       );
+      _refocusBarcodeField();
       return;
     }
 
@@ -674,6 +716,7 @@ class _CashierScreenState extends State<CashierScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Продажа оформлена')),
         );
+        _refocusBarcodeField();
       }
     } catch (e) {
       if (!mounted) return;
@@ -681,6 +724,7 @@ class _CashierScreenState extends State<CashierScreen> {
         _error = 'Не удалось оформить продажу';
         _isSelling = false;
       });
+      _refocusBarcodeField();
     }
   }
 
@@ -769,6 +813,16 @@ class _CashierScreenState extends State<CashierScreen> {
     return name != null && name.isNotEmpty ? name : 'Кассир';
   }
 
+  /// Восстанавливает фокус на скрытом поле ввода штрихкода.
+  void _refocusBarcodeField() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _barcodeFocusNode.canRequestFocus) {
+        _barcodeFocusNode.requestFocus();
+      }
+    });
+  }
+
   /// Сохраняет текущую корзину как продажу (если ещё не сохранена) и возвращает id чека.
   Future<int?> _ensureSaleSaved() async {
     final state = CashierStateScope.of(context);
@@ -793,11 +847,16 @@ class _CashierScreenState extends State<CashierScreen> {
 
   Future<void> _printReceipt() async {
     final state = CashierStateScope.of(context);
-    if (state.cart.isEmpty) return;
-    if (!Platform.isWindows) {
+    if (state.cart.isEmpty) {
+      _refocusBarcodeField();
+      return;
+    }
+    final printMode = widget.storage.receiptPrintMode;
+    if (printMode == 'raw' && !Platform.isWindows) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Печать чеков доступна только на Windows')),
+        const SnackBar(content: Text('RAW печать доступна только на Windows')),
       );
+      _refocusBarcodeField();
       return;
     }
     try {
@@ -807,25 +866,42 @@ class _CashierScreenState extends State<CashierScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Не удалось сохранить продажу для чека')),
           );
+          _refocusBarcodeField();
         }
         return;
       }
       final id = saleId ?? state.lastSavedSaleId!;
+      final dateTime = DateTime.now();
       final bytes = ReceiptPrinterService.buildReceipt(
         saleId: id,
         cashierName: _cashierName,
         items: state.cart,
         total: state.cartTotal,
-        dateTime: DateTime.now(),
+        dateTime: dateTime,
       );
       await ReceiptPrinterService.printReceipt(
         printerName: widget.storage.receiptPrinterName,
         bytes: bytes,
+        printMode: printMode,
+        saleId: id,
+        cashierName: _cashierName,
+        items: state.cart,
+        total: state.cartTotal,
+        dateTime: dateTime,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Чек отправлен на печать')),
+        SnackBar(
+          content: Text(
+            printMode == 'pdf'
+                ? 'Открыт диалог печати'
+                : printMode == 'pdf_direct'
+                    ? 'PDF отправлен на печать'
+                    : 'Чек отправлен на печать',
+          ),
+        ),
       );
+      _refocusBarcodeField();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -835,12 +911,16 @@ class _CashierScreenState extends State<CashierScreen> {
           ),
         ),
       );
+      _refocusBarcodeField();
     }
   }
 
   Future<void> _saveReceiptPdf() async {
     final state = CashierStateScope.of(context);
-    if (state.cart.isEmpty) return;
+    if (state.cart.isEmpty) {
+      _refocusBarcodeField();
+      return;
+    }
     try {
       final saleId = await _ensureSaleSaved();
       if (saleId == null && state.lastSavedSaleId == null) {
@@ -848,6 +928,7 @@ class _CashierScreenState extends State<CashierScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Не удалось сохранить продажу для чека')),
           );
+          _refocusBarcodeField();
         }
         return;
       }
@@ -884,6 +965,7 @@ class _CashierScreenState extends State<CashierScreen> {
         ),
       );
     }
+    _refocusBarcodeField();
   }
 
   String _formatDate(DateTime dt) {

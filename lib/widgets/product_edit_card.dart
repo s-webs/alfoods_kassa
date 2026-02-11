@@ -1,9 +1,14 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
 import '../models/category.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../utils/barcode_generator.dart';
+import '../utils/barcode_image_helper.dart';
 
 class ProductEditCard extends StatefulWidget {
   const ProductEditCard({
@@ -35,6 +40,7 @@ class _ProductEditCardState extends State<ProductEditCard> {
   late TextEditingController _priceController;
   late TextEditingController _discountPriceController;
   late TextEditingController _stockController;
+  late TextEditingController _stockThresholdController;
   late TextEditingController _purchasePriceController;
   late TextEditingController _barcodeController;
 
@@ -42,6 +48,8 @@ class _ProductEditCardState extends State<ProductEditCard> {
   String _selectedUnit = 'pcs';
   bool _isSaving = false;
   String? _error;
+  Uint8List? _barcodePreviewBytes;
+  Timer? _barcodePreviewTimer;
 
   static const List<String> _units = ['pcs', 'g'];
 
@@ -53,9 +61,26 @@ class _ProductEditCardState extends State<ProductEditCard> {
     _priceController = TextEditingController();
     _discountPriceController = TextEditingController();
     _stockController = TextEditingController();
+    _stockThresholdController = TextEditingController();
     _purchasePriceController = TextEditingController();
     _barcodeController = TextEditingController();
     _updateFromProduct(widget.product);
+    _barcodeController.addListener(_scheduleBarcodePreview);
+  }
+
+  void _scheduleBarcodePreview() {
+    _barcodePreviewTimer?.cancel();
+    _barcodePreviewTimer = Timer(const Duration(milliseconds: 400), _refreshBarcodePreview);
+  }
+
+  Future<void> _refreshBarcodePreview() async {
+    final s = _barcodeController.text.trim();
+    if (s.isEmpty) {
+      if (mounted) setState(() => _barcodePreviewBytes = null);
+      return;
+    }
+    final bytes = await barcodeToPngBytes(s, width: 200, height: 80);
+    if (mounted) setState(() => _barcodePreviewBytes = bytes);
   }
 
   @override
@@ -72,19 +97,24 @@ class _ProductEditCardState extends State<ProductEditCard> {
     _priceController.text = p.price.toString();
     _discountPriceController.text = p.discountPrice?.toString() ?? '';
     _stockController.text = p.stock.toString();
+    _stockThresholdController.text = p.stockThreshold.toString();
     _purchasePriceController.text = p.purchasePrice.toString();
     _barcodeController.text = p.barcode ?? '';
     _selectedCategoryId = p.categoryId;
     _selectedUnit = p.unit;
+    _refreshBarcodePreview();
   }
 
   @override
   void dispose() {
+    _barcodePreviewTimer?.cancel();
+    _barcodeController.removeListener(_scheduleBarcodePreview);
     _nameController.dispose();
     _newNameController.dispose();
     _priceController.dispose();
     _discountPriceController.dispose();
     _stockController.dispose();
+    _stockThresholdController.dispose();
     _purchasePriceController.dispose();
     _barcodeController.dispose();
     super.dispose();
@@ -125,6 +155,7 @@ class _ProductEditCardState extends State<ProductEditCard> {
             ? null
             : _barcodeController.text.trim(),
         'stock': double.tryParse(_stockController.text) ?? 0,
+        'stock_threshold': double.tryParse(_stockThresholdController.text) ?? 0,
       };
       final dp = double.tryParse(_discountPriceController.text);
       if (dp != null && dp > 0) {
@@ -303,9 +334,48 @@ class _ProductEditCardState extends State<ProductEditCard> {
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
-                    controller: _barcodeController,
-                    decoration: const InputDecoration(labelText: 'Штрихкод'),
+                    controller: _stockThresholdController,
+                    decoration: const InputDecoration(
+                      labelText: 'Порог остатков',
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                   ),
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _barcodeController,
+                          decoration: const InputDecoration(
+                            labelText: 'Штрихкод',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: OutlinedButton(
+                          onPressed: () {
+                            _barcodeController.text = generateBarcode();
+                            _refreshBarcodePreview();
+                          },
+                          child: const Text('Сгенерировать'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_barcodePreviewBytes != null) ...[
+                    const SizedBox(height: 12),
+                    const Text('Превью штрихкода', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                    const SizedBox(height: 4),
+                    Image.memory(
+                      _barcodePreviewBytes!,
+                      height: 56,
+                      fit: BoxFit.contain,
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   FilledButton(
                     onPressed: _isSaving ? null : _save,

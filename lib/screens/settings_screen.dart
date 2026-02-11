@@ -4,15 +4,22 @@ import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
 import '../core/storage.dart';
+import '../models/product.dart';
+import '../services/api_service.dart';
+import '../services/label_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
+import '../widgets/label_canvas.dart';
+import '../widgets/label_style_controls.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     required this.storage,
+    required this.apiService,
   });
 
   final Storage storage;
+  final ApiService apiService;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -21,15 +28,54 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   List<String> _printers = [];
   String? _selectedPrinterName;
+  String _printMode = 'raw';
   bool _isLoading = true;
   String? _error;
   String? _errorDetail;
+
+  LabelTemplate _labelTemplate = LabelTemplate.defaultLabel();
+  LabelTemplate _priceTagTemplate = LabelTemplate.defaultPriceTag();
+  Product? _previewProduct;
+  static const double _minSizeMm = 10;
+  static const double _maxSizeMm = 200;
 
   @override
   void initState() {
     super.initState();
     _selectedPrinterName = widget.storage.receiptPrinterName;
+    _printMode = widget.storage.receiptPrintMode;
+    _loadTemplates();
+    _loadPreviewProduct();
     _loadPrinters();
+  }
+
+  void _loadTemplates() {
+    final labelJson = widget.storage.labelTemplateJson;
+    final priceTagJson = widget.storage.priceTagTemplateJson;
+    setState(() {
+      _labelTemplate = LabelTemplate.fromJson(labelJson);
+      _priceTagTemplate = LabelTemplate.fromJson(priceTagJson);
+    });
+  }
+
+  Future<void> _loadPreviewProduct() async {
+    try {
+      final products = await widget.apiService.getProducts();
+      if (mounted && products.isNotEmpty) {
+        setState(() => _previewProduct = products.first);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _previewProduct = Product(
+          id: 0,
+          name: 'Пример товара',
+          slug: 'primer',
+          barcode: '4601234567890',
+          price: 99.99,
+          unit: 'pcs',
+        ));
+      }
+    }
   }
 
   Future<void> _loadPrinters() async {
@@ -79,9 +125,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _savePrintMode(String mode) async {
+    await widget.storage.setReceiptPrintMode(mode);
+    setState(() => _printMode = mode);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mode == 'pdf'
+                ? 'Установлена обычная печать (PDF с диалогом)'
+                : mode == 'pdf_direct'
+                    ? 'Установлена прямая печать PDF (без диалога)'
+                    : 'Установлена RAW печать',
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -104,6 +168,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _printMode,
+                    decoration: const InputDecoration(
+                      labelText: 'Тип печати',
+                      border: OutlineInputBorder(),
+                      helperText: 'RAW - прямая печать на термопринтер, PDF - через диалог, PDF Direct - прямая печать без диалога',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'raw',
+                        child: Text('RAW (термопринтер)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'pdf',
+                        child: Text('PDF (с диалогом)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'pdf_direct',
+                        child: Text('PDF Direct (без диалога)'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) _savePrintMode(v);
+                    },
+                  ),
+                  const SizedBox(height: 16),
                   if (_error != null) ...[
                     Text(
                       _error!,
@@ -122,20 +212,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                     const SizedBox(height: 12),
                   ],
-                  if (!Platform.isWindows)
+                  if ((_printMode == 'raw' || _printMode == 'pdf_direct') && !Platform.isWindows)
                     Text(
-                      'Печать чеков на принтер 80мм поддерживается только на Windows.',
+                      'RAW и PDF Direct печать доступны только на Windows. Используйте PDF печать с диалогом.',
                       style: TextStyle(
                         color: AppColors.muted,
                         fontSize: 13,
                       ),
                     )
-                  else if (_isLoading)
+                  else if (_printMode == 'raw' && _isLoading)
                     const SizedBox(
                       height: 48,
                       child: Center(child: CircularProgressIndicator()),
                     )
-                  else
+                  else if (_printMode == 'raw')
                     DropdownButtonFormField<String>(
                       value: _printers.contains(_selectedPrinterName)
                           ? _selectedPrinterName
@@ -143,6 +233,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Принтер для чеков (80мм)',
                         border: OutlineInputBorder(),
+                        helperText: 'Выбор принтера требуется для RAW печати',
                       ),
                       items: _printers
                           .map(
@@ -156,7 +247,273 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           )
                           .toList(),
                       onChanged: (v) => _savePrinter(v),
+                    )
+                  else if (_printMode == 'pdf_direct')
+                    DropdownButtonFormField<String>(
+                      value: _printers.contains(_selectedPrinterName)
+                          ? _selectedPrinterName
+                          : (_printers.isNotEmpty ? _printers.first : null),
+                      decoration: const InputDecoration(
+                        labelText: 'Принтер для печати',
+                        border: OutlineInputBorder(),
+                        helperText: 'Выберите принтер для прямой печати PDF (null = принтер по умолчанию)',
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('(Принтер по умолчанию)'),
+                        ),
+                        ..._printers
+                            .map(
+                              (p) => DropdownMenuItem(
+                                value: p,
+                                child: Text(
+                                  p,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ],
+                      onChanged: (v) => _savePrinter(v),
+                    )
+                  else
+                    Text(
+                      'При печати будет открыт системный диалог выбора принтера.',
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 13,
+                      ),
                     ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Этикетки и ценники',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  ExpansionTile(
+                    title: const Text('Конструктор этикеток'),
+                    subtitle: const Text('Базовый макет по умолчанию'),
+                    children: [
+                      LabelStyleControls(
+                        style: _labelTemplate.style,
+                        onChanged: (s) => setState(() => _labelTemplate =
+                            LabelTemplate(
+                          blockLayout: _labelTemplate.blockLayout,
+                          style: s,
+                          widthMm: _labelTemplate.widthMm,
+                          heightMm: _labelTemplate.heightMm,
+                        )),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 100,
+                              child: TextFormField(
+                                initialValue:
+                                    _labelTemplate.widthMm.toStringAsFixed(0),
+                                decoration: const InputDecoration(
+                                  labelText: 'Ширина (мм)',
+                                  isDense: true,
+                                ),
+                                keyboardType: TextInputType.number,
+                                onChanged: (v) {
+                                  final n = double.tryParse(v);
+                                  if (n != null &&
+                                      n >= _minSizeMm &&
+                                      n <= _maxSizeMm) {
+                                    setState(() => _labelTemplate =
+                                        LabelTemplate(
+                                      blockLayout: _labelTemplate.blockLayout,
+                                      style: _labelTemplate.style,
+                                      widthMm: n,
+                                      heightMm: _labelTemplate.heightMm,
+                                    ));
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: 100,
+                              child: TextFormField(
+                                initialValue:
+                                    _labelTemplate.heightMm.toStringAsFixed(0),
+                                decoration: const InputDecoration(
+                                  labelText: 'Высота (мм)',
+                                  isDense: true,
+                                ),
+                                keyboardType: TextInputType.number,
+                                onChanged: (v) {
+                                  final n = double.tryParse(v);
+                                  if (n != null &&
+                                      n >= _minSizeMm &&
+                                      n <= _maxSizeMm) {
+                                    setState(() => _labelTemplate =
+                                        LabelTemplate(
+                                      blockLayout: _labelTemplate.blockLayout,
+                                      style: _labelTemplate.style,
+                                      widthMm: _labelTemplate.widthMm,
+                                      heightMm: n,
+                                    ));
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      LabelCanvas(
+                        product: _previewProduct,
+                        blockLayout: _labelTemplate.blockLayout,
+                        widthMm: _labelTemplate.widthMm,
+                        heightMm: _labelTemplate.heightMm,
+                        style: _labelTemplate.style,
+                        onLayoutChanged: (layout) => setState(() =>
+                            _labelTemplate = LabelTemplate(
+                          blockLayout: layout,
+                          style: _labelTemplate.style,
+                          widthMm: _labelTemplate.widthMm,
+                          heightMm: _labelTemplate.heightMm,
+                        )),
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton(
+                        onPressed: () async {
+                          await widget.storage
+                              .setLabelTemplateJson(_labelTemplate.toJson());
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('Макет этикеток сохранён')),
+                            );
+                          }
+                        },
+                        child: const Text('Сохранить как макет по умолчанию'),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                  ExpansionTile(
+                    title: const Text('Конструктор ценников'),
+                    subtitle: const Text('Базовый макет по умолчанию'),
+                    children: [
+                      LabelStyleControls(
+                        style: _priceTagTemplate.style,
+                        onChanged: (s) => setState(() => _priceTagTemplate =
+                            LabelTemplate(
+                          blockLayout: _priceTagTemplate.blockLayout,
+                          style: s,
+                          widthMm: _priceTagTemplate.widthMm,
+                          heightMm: _priceTagTemplate.heightMm,
+                        )),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 100,
+                              child: TextFormField(
+                                initialValue: _priceTagTemplate.widthMm
+                                    .toStringAsFixed(0),
+                                decoration: const InputDecoration(
+                                  labelText: 'Ширина (мм)',
+                                  isDense: true,
+                                ),
+                                keyboardType: TextInputType.number,
+                                onChanged: (v) {
+                                  final n = double.tryParse(v);
+                                  if (n != null &&
+                                      n >= _minSizeMm &&
+                                      n <= _maxSizeMm) {
+                                    setState(() => _priceTagTemplate =
+                                        LabelTemplate(
+                                      blockLayout:
+                                          _priceTagTemplate.blockLayout,
+                                      style: _priceTagTemplate.style,
+                                      widthMm: n,
+                                      heightMm: _priceTagTemplate.heightMm,
+                                    ));
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: 100,
+                              child: TextFormField(
+                                initialValue: _priceTagTemplate.heightMm
+                                    .toStringAsFixed(0),
+                                decoration: const InputDecoration(
+                                  labelText: 'Высота (мм)',
+                                  isDense: true,
+                                ),
+                                keyboardType: TextInputType.number,
+                                onChanged: (v) {
+                                  final n = double.tryParse(v);
+                                  if (n != null &&
+                                      n >= _minSizeMm &&
+                                      n <= _maxSizeMm) {
+                                    setState(() => _priceTagTemplate =
+                                        LabelTemplate(
+                                      blockLayout:
+                                          _priceTagTemplate.blockLayout,
+                                      style: _priceTagTemplate.style,
+                                      widthMm: _priceTagTemplate.widthMm,
+                                      heightMm: n,
+                                    ));
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      LabelCanvas(
+                        product: _previewProduct,
+                        blockLayout: _priceTagTemplate.blockLayout,
+                        widthMm: _priceTagTemplate.widthMm,
+                        heightMm: _priceTagTemplate.heightMm,
+                        style: _priceTagTemplate.style,
+                        onLayoutChanged: (layout) => setState(() =>
+                            _priceTagTemplate = LabelTemplate(
+                          blockLayout: layout,
+                          style: _priceTagTemplate.style,
+                          widthMm: _priceTagTemplate.widthMm,
+                          heightMm: _priceTagTemplate.heightMm,
+                        )),
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton(
+                        onPressed: () async {
+                          await widget.storage
+                              .setPriceTagTemplateJson(
+                                  _priceTagTemplate.toJson());
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('Макет ценников сохранён')),
+                            );
+                          }
+                        },
+                        child: const Text('Сохранить как макет по умолчанию'),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ],
               ),
             ),

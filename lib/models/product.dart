@@ -9,7 +9,9 @@ class Product {
   final double? discountPrice;
   final double purchasePrice;
   final double stock;
+  final double stockThreshold;
   final String unit;
+  final Map<String, dynamic>? meta;
 
   const Product({
     required this.id,
@@ -22,7 +24,9 @@ class Product {
     this.discountPrice,
     this.purchasePrice = 0,
     this.stock = 0,
+    this.stockThreshold = 0,
     this.unit = 'pcs',
+    this.meta,
   });
 
   static double _parseDouble(dynamic v) {
@@ -32,6 +36,13 @@ class Product {
   }
 
   factory Product.fromJson(Map<String, dynamic> json) {
+    final metaRaw = json['meta'];
+    Map<String, dynamic>? meta;
+    if (metaRaw is Map<String, dynamic>) {
+      meta = metaRaw;
+    } else if (metaRaw is Map) {
+      meta = Map<String, dynamic>.from(metaRaw as Map);
+    }
     return Product(
       id: json['id'] as int,
       categoryId: json['category_id'] as int?,
@@ -45,7 +56,9 @@ class Product {
           : null,
       purchasePrice: (json['purchase_price'] as num?)?.toDouble() ?? 0,
       stock: _parseDouble(json['stock']),
+      stockThreshold: _parseDouble(json['stock_threshold']),
       unit: json['unit'] as String? ?? 'pcs',
+      meta: meta,
     );
   }
 
@@ -62,9 +75,13 @@ class Product {
       'price': price,
       'barcode': barcode,
       'stock': stock,
+      'stock_threshold': stockThreshold,
     };
     if (discountPrice != null) {
       map['discount_price'] = discountPrice;
+    }
+    if (meta != null) {
+      map['meta'] = meta;
     }
     return map;
   }
