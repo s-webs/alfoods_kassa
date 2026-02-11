@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../core/storage.dart';
 import '../core/theme.dart';
 import '../models/cart_item.dart';
+import '../models/category.dart';
 import '../models/product.dart';
 import '../models/product_set.dart';
 import '../models/shift.dart';
@@ -13,6 +14,7 @@ import '../services/api_service.dart';
 import '../state/cashier_state.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
+import '../utils/barcode_generator.dart';
 import '../widgets/add_product_dialog.dart';
 
 class CashierScreen extends StatefulWidget {
@@ -590,12 +592,41 @@ class _CashierScreenState extends State<CashierScreen> {
 
   /// Создать товар в базе и добавить его в корзину.
   Future<void> _showAddProductToDbDialog(String barcode) async {
+    // Загружаем категории перед показом диалога
+    List<Category> categories = [];
+    try {
+      categories = await widget.apiService.getCategories();
+    } catch (_) {
+      // Игнорируем ошибку загрузки категорий
+    }
+
     final nameController = TextEditingController(text: 'Товар $barcode');
+    final newNameController = TextEditingController();
     final priceController = TextEditingController(text: '0');
-    String unit = 'pcs';
+    final purchasePriceController = TextEditingController(text: '0');
+    final discountPriceController = TextEditingController();
+    final stockController = TextEditingController(text: '0');
+    final stockThresholdController = TextEditingController(text: '0');
+    final barcodeController = TextEditingController(text: barcode);
+    
+    int? selectedCategoryId;
+    String selectedUnit = 'pcs';
+    bool isActive = true;
 
     if (!mounted) return;
-    final productData = await showDialog<({String name, double price, String unit})>(
+    final productData = await showDialog<({
+      String name,
+      String? newName,
+      double price,
+      double purchasePrice,
+      double? discountPrice,
+      double stock,
+      double stockThreshold,
+      String unit,
+      int? categoryId,
+      String? barcode,
+      bool isActive,
+    })>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
@@ -606,12 +637,67 @@ class _CashierScreenState extends State<CashierScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: nameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Название',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        const Text('Активен'),
+                        const SizedBox(width: 8),
+                        Switch(
+                          value: isActive,
+                          onChanged: (v) => setDialogState(() => isActive = v),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
-                      controller: nameController,
+                      controller: newNameController,
                       decoration: const InputDecoration(
-                        labelText: 'Название',
+                        labelText: 'New name',
                         border: OutlineInputBorder(),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int?>(
+                      value: selectedCategoryId,
+                      decoration: const InputDecoration(
+                        labelText: 'Категория',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('Без категории'),
+                        ),
+                        ...categories.map(
+                          (c) => DropdownMenuItem(
+                            value: c.id,
+                            child: Text(c.name),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) => setDialogState(() => selectedCategoryId = v),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedUnit,
+                      decoration: const InputDecoration(
+                        labelText: 'Единица',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'pcs', child: Text('шт')),
+                        DropdownMenuItem(value: 'g', child: Text('г')),
+                      ],
+                      onChanged: (v) => setDialogState(() => selectedUnit = v ?? 'pcs'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -625,22 +711,73 @@ class _CashierScreenState extends State<CashierScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: unit,
+                    TextField(
+                      controller: purchasePriceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: const InputDecoration(
-                        labelText: 'Единица',
+                        labelText: 'Закупочная цена, ₸',
                         border: OutlineInputBorder(),
                       ),
-                      items: const [
-                        DropdownMenuItem(value: 'pcs', child: Text('шт')),
-                        DropdownMenuItem(value: 'g', child: Text('г')),
-                      ],
-                      onChanged: (v) => setDialogState(() => unit = v ?? 'pcs'),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Штрихкод: $barcode',
-                      style: TextStyle(fontSize: 12, color: AppColors.muted),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: discountPriceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Цена со скидкой, ₸',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: stockController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Остаток',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: stockThresholdController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Порог остатков',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: barcodeController,
+                            decoration: const InputDecoration(
+                              labelText: 'Штрихкод',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: OutlinedButton(
+                            onPressed: () {
+                              barcodeController.text = generateBarcode();
+                            },
+                            child: const Text('Сгенерировать'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -656,11 +793,39 @@ class _CashierScreenState extends State<CashierScreen> {
                     final price = double.tryParse(
                       priceController.text.replaceFirst(',', '.').trim(),
                     );
+                    final purchasePrice = double.tryParse(
+                      purchasePriceController.text.replaceFirst(',', '.').trim(),
+                    ) ?? 0;
+                    final discountPrice = discountPriceController.text.trim().isEmpty
+                        ? null
+                        : double.tryParse(
+                            discountPriceController.text.replaceFirst(',', '.').trim(),
+                          );
+                    final stock = double.tryParse(
+                      stockController.text.replaceFirst(',', '.').trim(),
+                    ) ?? 0;
+                    final stockThreshold = double.tryParse(
+                      stockThresholdController.text.replaceFirst(',', '.').trim(),
+                    ) ?? 0;
+                    final barcodeValue = barcodeController.text.trim();
+                    
                     if (name.isNotEmpty && price != null && price >= 0) {
                       Navigator.of(ctx).pop((
                         name: name,
+                        newName: newNameController.text.trim().isEmpty
+                            ? null
+                            : newNameController.text.trim(),
                         price: price,
-                        unit: unit,
+                        purchasePrice: purchasePrice,
+                        discountPrice: discountPrice != null && discountPrice > 0
+                            ? discountPrice
+                            : null,
+                        stock: stock,
+                        stockThreshold: stockThreshold,
+                        unit: selectedUnit,
+                        categoryId: selectedCategoryId,
+                        barcode: barcodeValue.isEmpty ? null : barcodeValue,
+                        isActive: isActive,
                       ));
                     }
                   },
@@ -673,16 +838,39 @@ class _CashierScreenState extends State<CashierScreen> {
       },
     );
 
+    barcodeController.dispose();
+    nameController.dispose();
+    newNameController.dispose();
+    priceController.dispose();
+    purchasePriceController.dispose();
+    discountPriceController.dispose();
+    stockController.dispose();
+    stockThresholdController.dispose();
+
     if (productData == null || !mounted) return;
 
     final data = <String, dynamic>{
       'name': productData.name,
       'unit': productData.unit,
       'price': productData.price,
-      'barcode': barcode,
-      'stock': 0,
-      'is_active': true,
+      'purchase_price': productData.purchasePrice,
+      'stock': productData.stock,
+      'stock_threshold': productData.stockThreshold,
+      'is_active': productData.isActive,
     };
+
+    if (productData.newName != null && productData.newName!.isNotEmpty) {
+      data['new_name'] = productData.newName;
+    }
+    if (productData.discountPrice != null && productData.discountPrice! > 0) {
+      data['discount_price'] = productData.discountPrice;
+    }
+    if (productData.categoryId != null) {
+      data['category_id'] = productData.categoryId;
+    }
+    if (productData.barcode != null && productData.barcode!.isNotEmpty) {
+      data['barcode'] = productData.barcode;
+    }
 
     try {
       final product = await widget.apiService.createProduct(data);
