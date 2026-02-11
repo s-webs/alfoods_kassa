@@ -4,7 +4,9 @@ import '../core/api_client.dart';
 import '../core/storage.dart';
 import '../models/category.dart';
 import '../models/cashier.dart';
+import '../models/counterparty.dart';
 import '../models/product.dart';
+import '../models/product_receipt.dart';
 import '../models/product_set.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
@@ -282,6 +284,80 @@ class ApiService {
   Future<Sale> returnSale(int id) async {
     final response = await _apiClient.dio.post('api/sales/$id/return');
     return Sale.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  // Counterparties
+  Future<List<Counterparty>> getCounterparties() async {
+    final response = await _apiClient.dio.get('api/counterparties');
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => Counterparty.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<Counterparty> getCounterparty(int id) async {
+    final response = await _apiClient.dio.get('api/counterparties/$id');
+    return Counterparty.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Counterparty> createCounterparty(Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.post('api/counterparties', data: data);
+    return Counterparty.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Counterparty> updateCounterparty(int id, Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.patch('api/counterparties/$id', data: data);
+    return Counterparty.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteCounterparty(int id) async {
+    await _apiClient.dio.delete('api/counterparties/$id');
+  }
+
+  // Product Receipts
+  Future<List<ProductReceipt>> getProductReceipts() async {
+    final response = await _apiClient.dio.get('api/product-receipts');
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => ProductReceipt.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ProductReceipt> getProductReceipt(int id) async {
+    final response = await _apiClient.dio.get('api/product-receipts/$id');
+    return ProductReceipt.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<ProductReceipt> createProductReceipt({
+    int? counterpartyId,
+    String? supplierName,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    final data = <String, dynamic>{'items': items};
+    if (counterpartyId != null) data['counterparty_id'] = counterpartyId;
+    if (supplierName != null && supplierName.isNotEmpty) {
+      data['supplier_name'] = supplierName;
+    }
+    final response = await _apiClient.dio.post('api/product-receipts', data: data);
+    return ProductReceipt.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<ProductReceipt> updateProductReceipt(int id, {
+    int? counterpartyId,
+    String? supplierName,
+    List<Map<String, dynamic>>? items,
+  }) async {
+    final data = <String, dynamic>{};
+    if (counterpartyId != null) data['counterparty_id'] = counterpartyId;
+    if (supplierName != null) data['supplier_name'] = supplierName;
+    if (items != null) data['items'] = items;
+
+    final response = await _apiClient.dio.patch('api/product-receipts/$id', data: data);
+    return ProductReceipt.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteProductReceipt(int id) async {
+    await _apiClient.dio.delete('api/product-receipts/$id');
   }
 }
 

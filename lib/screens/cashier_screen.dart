@@ -1541,9 +1541,11 @@ class _CashierScreenState extends State<CashierScreen> {
                                       item.quantity.toStringAsFixed(
                                         item.unit == 'pcs' ? 0 : 2,
                                       ),
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontWeight: FontWeight.w600,
                                         fontSize: 16,
+                                        decoration: TextDecoration.underline,
+                                        color: AppColors.primary,
                                       ),
                                       textAlign: TextAlign.center,
                                     ),

@@ -7,9 +7,14 @@ import 'layouts/app_shell.dart';
 import 'screens/cashier_screen.dart';
 import 'screens/categories_screen.dart';
 import 'screens/category_form_screen.dart';
+import 'screens/counterparties_screen.dart';
+import 'screens/counterparty_form_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/print_labels_screen.dart';
 import 'screens/product_form_screen.dart';
+import 'screens/product_receipt_detail_screen.dart';
+import 'screens/product_receipt_form_screen.dart';
+import 'screens/product_receipts_screen.dart';
 import 'screens/products_screen.dart';
 import 'screens/sale_detail_screen.dart';
 import 'screens/set_form_screen.dart';
@@ -106,6 +111,34 @@ class App extends StatelessWidget {
                     apiService: apiService,
                     categoryId: id,
                     mode: CategoryFormMode.edit,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/counterparties',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: CounterpartiesScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/counterparties/create',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: CounterpartyFormScreen(
+                  apiService: apiService,
+                  mode: CounterpartyFormMode.create,
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/counterparties/:id/edit',
+              pageBuilder: (context, state) {
+                final id = int.tryParse(state.pathParameters['id'] ?? '');
+                return NoTransitionPage(
+                  child: CounterpartyFormScreen(
+                    apiService: apiService,
+                    counterpartyId: id,
+                    mode: CounterpartyFormMode.edit,
                   ),
                 );
               },
@@ -242,6 +275,31 @@ class App extends StatelessWidget {
                     storage: storage,
                     apiService: apiService,
                     saleId: saleId,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/product-receipts',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: ProductReceiptsScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/product-receipts/create',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: ProductReceiptFormScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/product-receipts/:receiptId',
+              pageBuilder: (context, state) {
+                final receiptId =
+                    int.tryParse(state.pathParameters['receiptId'] ?? '') ?? 0;
+                return NoTransitionPage(
+                  child: ProductReceiptDetailScreen(
+                    apiService: apiService,
+                    receiptId: receiptId,
                   ),
                 );
               },

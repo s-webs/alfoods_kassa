@@ -108,14 +108,23 @@ class _Sidebar extends StatelessWidget {
                 _NavItem(
                   icon: PhosphorIconsRegular.listBullets,
                   label: 'Категории',
-                  isSelected: currentLocation == '/categories',
+                  isSelected: currentLocation == '/categories' ||
+                      currentLocation.startsWith('/categories/'),
                   onTap: () => context.go('/categories'),
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.cheese,
                   label: 'Товары',
-                  isSelected: currentLocation == '/products',
+                  isSelected: currentLocation == '/products' ||
+                      currentLocation.startsWith('/products/'),
                   onTap: () => context.go('/products'),
+                ),
+                _NavItem(
+                  icon: PhosphorIconsRegular.buildings,
+                  label: 'Контрагенты',
+                  isSelected: currentLocation == '/counterparties' ||
+                      currentLocation.startsWith('/counterparties/'),
+                  onTap: () => context.go('/counterparties'),
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.package,
@@ -130,6 +139,13 @@ class _Sidebar extends StatelessWidget {
                   isSelected: currentLocation == '/sales' ||
                       currentLocation.startsWith('/sales/'),
                   onTap: () => context.go('/sales'),
+                ),
+                _NavItem(
+                  icon: PhosphorIconsRegular.package,
+                  label: 'Поступления',
+                  isSelected: currentLocation == '/product-receipts' ||
+                      currentLocation.startsWith('/product-receipts/'),
+                  onTap: () => context.go('/product-receipts'),
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.gear,

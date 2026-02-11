@@ -749,41 +749,58 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                                           ),
                                         ),
                                   const SizedBox(height: 4),
-                                  _editingPriceIndex == index &&
-                                          _priceEditController != null
-                                      ? SizedBox(
-                                          width: 140,
-                                          child: TextField(
-                                            controller: _priceEditController,
-                                            autofocus: true,
-                                            keyboardType: const TextInputType
-                                                .numberWithOptions(
-                                              decimal: true,
-                                            ),
-                                            decoration: const InputDecoration(
-                                              isDense: true,
-                                              border: OutlineInputBorder(),
-                                              contentPadding:
-                                                  EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 6,
+                                  Row(
+                                    children: [
+                                      GestureDetector(
+                                        onDoubleTap: () =>
+                                            _startEditPrice(index),
+                                        child: _editingPriceIndex == index &&
+                                                _priceEditController != null
+                                            ? SizedBox(
+                                                width: 100,
+                                                child: TextField(
+                                                  controller: _priceEditController,
+                                                  autofocus: true,
+                                                  keyboardType: const TextInputType
+                                                      .numberWithOptions(
+                                                    decimal: true,
+                                                  ),
+                                                  decoration: const InputDecoration(
+                                                    isDense: true,
+                                                    border: OutlineInputBorder(),
+                                                    contentPadding:
+                                                        EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 6,
+                                                    ),
+                                                  ),
+                                                  onSubmitted: (_) =>
+                                                      _finishEditPrice(),
+                                                ),
+                                              )
+                                            : Text(
+                                                '${item.price.toStringAsFixed(2)} ₸ × ',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: AppColors.muted,
+                                                  decoration: TextDecoration.underline,
+                                                ),
                                               ),
-                                            ),
-                                            onSubmitted: (_) =>
-                                                _finishEditPrice(),
-                                          ),
-                                        )
-                                      : GestureDetector(
-                                          onDoubleTap: () =>
-                                              _startEditPrice(index),
-                                          child: Text(
-                                            '${item.price.toStringAsFixed(2)} ₸ × ${item.quantity} ${item.unit}',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: AppColors.muted,
-                                            ),
+                                      ),
+                                      GestureDetector(
+                                        onTap: () => _editQuantity(index),
+                                        child: Text(
+                                          '${item.quantity.toStringAsFixed(item.unit == 'pcs' ? 0 : 2)} ${item.unit}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.primary,
+                                            fontWeight: FontWeight.w600,
+                                            decoration: TextDecoration.underline,
                                           ),
                                         ),
+                                      ),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -809,9 +826,11 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                                         item.quantity.toStringAsFixed(
                                           item.unit == 'pcs' ? 0 : 2,
                                         ),
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontWeight: FontWeight.w600,
                                           fontSize: 14,
+                                          decoration: TextDecoration.underline,
+                                          color: AppColors.primary,
                                         ),
                                       ),
                                     ),
