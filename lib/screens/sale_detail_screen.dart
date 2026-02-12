@@ -13,6 +13,7 @@ import '../models/sale.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
 import '../widgets/add_product_dialog.dart';
+import '../widgets/invoice_dialog.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
 
@@ -965,6 +966,20 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                   ),
                 ),
               if (Platform.isWindows) const SizedBox(height: 12),
+              if (!isReturned && _items.isNotEmpty) ...[
+                OutlinedButton.icon(
+                  onPressed: () => showInvoiceDialog(
+                    context: context,
+                    apiService: widget.apiService,
+                    items: List.from(_items),
+                    initialDocumentNumber: '${sale.id}',
+                    storage: widget.storage,
+                  ),
+                  icon: const Icon(Icons.description, size: 20),
+                  label: const Text('Накладная'),
+                ),
+                const SizedBox(height: 12),
+              ],
               FilledButton(
                 onPressed: _isSaving ? null : _save,
                 child: _isSaving

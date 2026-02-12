@@ -10,6 +10,10 @@ class Storage {
   static const _keyReceiptPrintMode = 'receipt_print_mode';
   static const _keyLabelTemplate = 'label_template';
   static const _keyPriceTagTemplate = 'price_tag_template';
+  static const _keyEntrepreneurName = 'entrepreneur_name';
+  static const _keyEntrepreneurBin = 'entrepreneur_bin';
+  static const _keyEntrepreneurManager = 'entrepreneur_manager';
+  static const _keyEntrepreneurAddress = 'entrepreneur_address';
 
   final SharedPreferences _prefs;
 
@@ -85,6 +89,42 @@ class Storage {
       await _prefs.remove(_keyPriceTagTemplate);
     } else {
       await _prefs.setString(_keyPriceTagTemplate, jsonEncode(json));
+    }
+  }
+
+  String? get entrepreneurName => _prefs.getString(_keyEntrepreneurName);
+  Future<void> setEntrepreneurName(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyEntrepreneurName);
+    } else {
+      await _prefs.setString(_keyEntrepreneurName, value);
+    }
+  }
+
+  String? get entrepreneurBin => _prefs.getString(_keyEntrepreneurBin);
+  Future<void> setEntrepreneurBin(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyEntrepreneurBin);
+    } else {
+      await _prefs.setString(_keyEntrepreneurBin, value);
+    }
+  }
+
+  String? get entrepreneurManager => _prefs.getString(_keyEntrepreneurManager);
+  Future<void> setEntrepreneurManager(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyEntrepreneurManager);
+    } else {
+      await _prefs.setString(_keyEntrepreneurManager, value);
+    }
+  }
+
+  String? get entrepreneurAddress => _prefs.getString(_keyEntrepreneurAddress);
+  Future<void> setEntrepreneurAddress(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyEntrepreneurAddress);
+    } else {
+      await _prefs.setString(_keyEntrepreneurAddress, value);
     }
   }
 

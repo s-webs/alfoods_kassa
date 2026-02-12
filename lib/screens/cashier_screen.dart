@@ -16,6 +16,7 @@ import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
 import '../utils/barcode_generator.dart';
 import '../widgets/add_product_dialog.dart';
+import '../widgets/invoice_dialog.dart';
 
 class CashierScreen extends StatefulWidget {
   const CashierScreen({
@@ -1633,6 +1634,17 @@ class _CashierScreenState extends State<CashierScreen> {
               onPressed: _saveReceiptPdf,
               icon: const Icon(Icons.picture_as_pdf, size: 20),
               label: const Text('В PDF'),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: () => showInvoiceDialog(
+                context: context,
+                apiService: widget.apiService,
+                items: List.from(state.cart),
+                storage: widget.storage,
+              ),
+              icon: const Icon(Icons.description, size: 20),
+              label: const Text('Накладная'),
             ),
             const SizedBox(width: 12),
           ],

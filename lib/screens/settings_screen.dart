@@ -33,6 +33,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _error;
   String? _errorDetail;
 
+  final _entrepreneurNameController = TextEditingController();
+  final _entrepreneurBinController = TextEditingController();
+  final _entrepreneurManagerController = TextEditingController();
+  final _entrepreneurAddressController = TextEditingController();
+
   LabelTemplate _labelTemplate = LabelTemplate.defaultLabel();
   LabelTemplate _priceTagTemplate = LabelTemplate.defaultPriceTag();
   Product? _previewProduct;
@@ -44,9 +49,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _selectedPrinterName = widget.storage.receiptPrinterName;
     _printMode = widget.storage.receiptPrintMode;
+    _entrepreneurNameController.text = widget.storage.entrepreneurName ?? '';
+    _entrepreneurBinController.text = widget.storage.entrepreneurBin ?? '';
+    _entrepreneurManagerController.text = widget.storage.entrepreneurManager ?? '';
+    _entrepreneurAddressController.text = widget.storage.entrepreneurAddress ?? '';
     _loadTemplates();
     _loadPreviewProduct();
     _loadPrinters();
+  }
+
+  @override
+  void dispose() {
+    _entrepreneurNameController.dispose();
+    _entrepreneurBinController.dispose();
+    _entrepreneurManagerController.dispose();
+    _entrepreneurAddressController.dispose();
+    super.dispose();
   }
 
   void _loadTemplates() {
@@ -139,6 +157,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : 'Установлена RAW печать',
           ),
         ),
+      );
+    }
+  }
+
+  Future<void> _saveEntrepreneur() async {
+    await widget.storage.setEntrepreneurName(
+      _entrepreneurNameController.text.trim().isEmpty
+          ? null
+          : _entrepreneurNameController.text.trim(),
+    );
+    await widget.storage.setEntrepreneurBin(
+      _entrepreneurBinController.text.trim().isEmpty
+          ? null
+          : _entrepreneurBinController.text.trim(),
+    );
+    await widget.storage.setEntrepreneurManager(
+      _entrepreneurManagerController.text.trim().isEmpty
+          ? null
+          : _entrepreneurManagerController.text.trim(),
+    );
+    await widget.storage.setEntrepreneurAddress(
+      _entrepreneurAddressController.text.trim().isEmpty
+          ? null
+          : _entrepreneurAddressController.text.trim(),
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Данные предпринимателя сохранены')),
       );
     }
   }
@@ -285,6 +331,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         fontSize: 13,
                       ),
                     ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Данные предпринимателя',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _entrepreneurNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Название ИП',
+                      border: OutlineInputBorder(),
+                      hintText: 'Индивидуальный предприниматель «Название»',
+                    ),
+                    onFieldSubmitted: (_) => _saveEntrepreneur(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _entrepreneurBinController,
+                    decoration: const InputDecoration(
+                      labelText: 'БИН',
+                      border: OutlineInputBorder(),
+                      hintText: '12 цифр',
+                    ),
+                    keyboardType: TextInputType.number,
+                    maxLength: 12,
+                    onFieldSubmitted: (_) => _saveEntrepreneur(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _entrepreneurManagerController,
+                    decoration: const InputDecoration(
+                      labelText: 'Руководитель',
+                      border: OutlineInputBorder(),
+                      hintText: 'Ф.И.О. руководителя',
+                    ),
+                    onFieldSubmitted: (_) => _saveEntrepreneur(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _entrepreneurAddressController,
+                    decoration: const InputDecoration(
+                      labelText: 'Адрес',
+                      border: OutlineInputBorder(),
+                      hintText: 'Юридический адрес или адрес деятельности',
+                    ),
+                    maxLines: 2,
+                    onFieldSubmitted: (_) => _saveEntrepreneur(),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: _saveEntrepreneur,
+                    child: const Text('Сохранить'),
+                  ),
                 ],
               ),
             ),
