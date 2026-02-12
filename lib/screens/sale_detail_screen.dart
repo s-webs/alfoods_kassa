@@ -464,7 +464,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     });
 
     try {
-      final updated = await widget.apiService.payDebt(
+      await widget.apiService.payDebt(
         widget.saleId,
         amount: result.amount,
         paymentDate: result.paymentDate,
@@ -477,6 +477,9 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
       await _load();
 
       if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(

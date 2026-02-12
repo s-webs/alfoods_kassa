@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 
 import '../core/storage.dart';
 import '../core/theme.dart';
@@ -9,7 +10,6 @@ import '../models/cart_item.dart';
 import '../models/counterparty.dart';
 import '../services/api_service.dart';
 import '../services/invoice_pdf_service.dart';
-import '../services/pdf_printer_plugin.dart';
 
 /// Модальное окно для заполнения данных накладной и генерации PDF.
 /// [items] — позиции из корзины кассы или из продажи.
@@ -315,20 +315,14 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
       );
       final pdfBytes = await InvoicePdfService.buildPdf(invoiceData);
       if (!mounted) return;
-      if (Platform.isWindows) {
-        await PdfPrinterPlugin.printPdf(pdfBytes: pdfBytes);
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Печать отправлена')));
-          Navigator.of(context).pop();
-        }
-      } else {
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+      );
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Печать доступна только на Windows. Сохраните PDF.'),
-          ),
+          const SnackBar(content: Text('Открыт диалог печати')),
         );
+        Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) {
