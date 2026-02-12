@@ -6,6 +6,8 @@ import '../core/storage.dart';
 import '../core/theme.dart';
 import '../services/api_service.dart';
 import '../state/cashier_state.dart';
+import '../state/task_state.dart';
+import '../widgets/today_tasks_dropdown.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -25,11 +27,13 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   late final CashierState _cashierState;
+  late final TaskState _taskState;
 
   @override
   void initState() {
     super.initState();
     _cashierState = CashierState();
+    _taskState = TaskState(widget.apiService);
   }
 
   @override
@@ -49,9 +53,36 @@ class _AppShellState extends State<AppShell> {
             },
           ),
           Expanded(
-            child: CashierStateScope(
-              state: _cashierState,
-              child: widget.child,
+            child: TaskStateScope(
+              state: _taskState,
+              child: CashierStateScope(
+                state: _cashierState,
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border(
+                          bottom: BorderSide(
+                            color: AppColors.muted.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TodayTasksDropdown(),
+                        ],
+                      ),
+                    ),
+                    Expanded(child: widget.child),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -152,6 +183,12 @@ class _Sidebar extends StatelessWidget {
                   isSelected: currentLocation == '/product-receipts' ||
                       currentLocation.startsWith('/product-receipts/'),
                   onTap: () => context.go('/product-receipts'),
+                ),
+                _NavItem(
+                  icon: Icons.task_alt,
+                  label: 'Задачи',
+                  isSelected: currentLocation == '/tasks',
+                  onTap: () => context.go('/tasks'),
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.gear,

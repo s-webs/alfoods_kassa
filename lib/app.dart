@@ -24,6 +24,7 @@ import 'screens/sale_search_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/shift_sales_screen.dart';
 import 'screens/shifts_list_screen.dart';
+import 'screens/tasks_screen.dart';
 import 'services/api_service.dart';
 
 class App extends StatelessWidget {
@@ -313,6 +314,12 @@ class App extends StatelessWidget {
                   ),
                 );
               },
+            ),
+            GoRoute(
+              path: '/tasks',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: TasksScreen(apiService: apiService),
+              ),
             ),
           ],
         ),

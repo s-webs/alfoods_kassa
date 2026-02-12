@@ -11,6 +11,7 @@ import '../models/product_receipt.dart';
 import '../models/product_set.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
+import '../models/task.dart';
 import '../models/user.dart';
 
 class ApiService {
@@ -425,6 +426,75 @@ class ApiService {
     final response = await _apiClient.dio.get('api/debtors');
     final list = response.data as List<dynamic>;
     return list.map((e) => e as Map<String, dynamic>).toList();
+  }
+
+  // Tasks
+  Future<List<Task>> getTasks({DateTime? date, String? status}) async {
+    final queryParams = <String, dynamic>{};
+    if (date != null) {
+      queryParams['date'] = date.toIso8601String().split('T')[0];
+    }
+    if (status != null && status.isNotEmpty) {
+      queryParams['status'] = status;
+    }
+    final response = await _apiClient.dio.get(
+      'api/tasks',
+      queryParameters: queryParams.isNotEmpty ? queryParams : null,
+    );
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => Task.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<Task>> getTodayTasks() async {
+    final response = await _apiClient.dio.get('api/tasks/today');
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => Task.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<Task> createTask({
+    required String title,
+    String? description,
+    required DateTime dueDate,
+    TaskStatus? status,
+  }) async {
+    final data = <String, dynamic>{
+      'title': title,
+      'due_date': dueDate.toIso8601String().split('T')[0],
+    };
+    if (description != null && description.isNotEmpty) {
+      data['description'] = description;
+    }
+    if (status != null) {
+      data['status'] = status.value;
+    }
+    final response = await _apiClient.dio.post('api/tasks', data: data);
+    return Task.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Task> updateTask(
+    int id, {
+    String? title,
+    String? description,
+    DateTime? dueDate,
+    TaskStatus? status,
+  }) async {
+    final data = <String, dynamic>{};
+    if (title != null) data['title'] = title;
+    if (description != null) data['description'] = description;
+    if (dueDate != null) {
+      data['due_date'] = dueDate.toIso8601String().split('T')[0];
+    }
+    if (status != null) data['status'] = status.value;
+    final response = await _apiClient.dio.patch('api/tasks/$id', data: data);
+    return Task.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteTask(int id) async {
+    await _apiClient.dio.delete('api/tasks/$id');
   }
 }
 
