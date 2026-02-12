@@ -9,6 +9,7 @@ import 'screens/categories_screen.dart';
 import 'screens/category_form_screen.dart';
 import 'screens/counterparties_screen.dart';
 import 'screens/counterparty_form_screen.dart';
+import 'screens/debtors_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/print_labels_screen.dart';
 import 'screens/product_form_screen.dart';
@@ -278,6 +279,15 @@ class App extends StatelessWidget {
                   ),
                 );
               },
+            ),
+            GoRoute(
+              path: '/debtors',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: DebtorsScreen(
+                  storage: storage,
+                  apiService: apiService,
+                ),
+              ),
             ),
             GoRoute(
               path: '/product-receipts',

@@ -12,8 +12,11 @@ import '../models/product.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../models/counterparty.dart';
+import '../models/debt_payment.dart';
 import '../widgets/add_product_dialog.dart';
 import '../widgets/invoice_dialog.dart';
+import '../widgets/pay_debt_dialog.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
 
@@ -38,6 +41,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   List<CartItem> _items = [];
   List<Cashier> _cashiers = [];
   List<Shift> _shifts = [];
+  Counterparty? _counterparty;
+  List<DebtPayment> _debtPayments = [];
   int? _selectedCashierId;
   int? _selectedShiftId;
   bool _isLoading = true;
@@ -73,6 +78,19 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
       final sale = await widget.apiService.getSale(widget.saleId);
       final cashiers = await widget.apiService.getCashiers();
       final shifts = await widget.apiService.getShifts();
+      
+      Counterparty? counterparty;
+      List<DebtPayment> debtPayments = [];
+      
+      if (sale.isOnCredit && sale.counterpartyId != null) {
+        try {
+          counterparty = await widget.apiService.getCounterparty(sale.counterpartyId!);
+          debtPayments = await widget.apiService.getDebtPayments(saleId: sale.id);
+        } catch (e) {
+          // Ignore errors loading counterparty/debt payments
+        }
+      }
+      
       if (!mounted) return;
       setState(() {
         _sale = sale;
@@ -89,6 +107,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
             .toList();
         _cashiers = cashiers;
         _shifts = shifts;
+        _counterparty = counterparty;
+        _debtPayments = debtPayments;
         _selectedCashierId = sale.cashierId;
         _selectedShiftId = sale.shiftId;
         _isLoading = false;
@@ -423,6 +443,54 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Не удалось удалить');
+    }
+  }
+
+  Future<void> _payDebt() async {
+    if (_sale == null || !_sale!.isOnCredit) return;
+
+    final result = await showDialog<PayDebtResult>(
+      context: context,
+      builder: (ctx) => PayDebtDialog(
+        remainingDebt: _sale!.remainingDebt,
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    setState(() {
+      _isSaving = true;
+      _error = null;
+    });
+
+    try {
+      final updated = await widget.apiService.payDebt(
+        widget.saleId,
+        amount: result.amount,
+        paymentDate: result.paymentDate,
+        notes: result.notes,
+      );
+
+      if (!mounted) return;
+
+      // Reload to get updated sale and debt payments
+      await _load();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Оплата на сумму ${result.amount.toStringAsFixed(2)} ₸ зарегистрирована',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+        _error = 'Не удалось зарегистрировать оплату';
+      });
     }
   }
 
@@ -909,6 +977,148 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                 ),
               ),
             ),
+            if (sale.isOnCredit && _counterparty != null) ...[
+              const SizedBox(height: 24),
+              Card(
+                color: Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.account_balance_wallet,
+                            color: AppColors.danger,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Продажа в долг',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.danger,
+                                ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Контрагент: ${_counterparty!.name}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Сумма продажи:',
+                            style: TextStyle(color: AppColors.muted),
+                          ),
+                          Text(
+                            '${sale.totalPrice.toStringAsFixed(2)} ₸',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Оплачено:',
+                            style: TextStyle(color: AppColors.muted),
+                          ),
+                          Text(
+                            '${sale.paidAmount.toStringAsFixed(2)} ₸',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Остаток долга:',
+                            style: TextStyle(
+                              color: AppColors.danger,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            '${sale.remainingDebt.toStringAsFixed(2)} ₸',
+                            style: TextStyle(
+                              color: AppColors.danger,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_debtPayments.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        Text(
+                          'История платежей:',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        ..._debtPayments.map((payment) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${payment.paymentDate.day.toString().padLeft(2, '0')}.${payment.paymentDate.month.toString().padLeft(2, '0')}.${payment.paymentDate.year}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.muted,
+                                          ),
+                                        ),
+                                        if (payment.notes != null &&
+                                            payment.notes!.isNotEmpty)
+                                          Text(
+                                            payment.notes!,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: AppColors.muted,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  Text(
+                                    '${payment.amount.toStringAsFixed(2)} ₸',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )),
+                      ],
+                      if (sale.remainingDebt > 0) ...[
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: _isSaving ? null : _payDebt,
+                          icon: const Icon(Icons.payment, size: 20),
+                          label: const Text('Оплатить долг'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.danger,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
             if (!isReturned) ...[
               const SizedBox(height: 24),
               Text(

@@ -193,6 +193,27 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
                                   ),
                                 ),
                               ],
+                              if (sale.isOnCredit) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.danger.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'в долг',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: AppColors.danger,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                           trailing: const Icon(Icons.chevron_right),

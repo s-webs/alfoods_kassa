@@ -5,6 +5,7 @@ import '../core/storage.dart';
 import '../models/category.dart';
 import '../models/cashier.dart';
 import '../models/counterparty.dart';
+import '../models/debt_payment.dart';
 import '../models/product.dart';
 import '../models/product_receipt.dart';
 import '../models/product_set.dart';
@@ -233,6 +234,8 @@ class ApiService {
   Future<Sale> createSale({
     int? cashierId,
     int? shiftId,
+    int? counterpartyId,
+    bool isOnCredit = false,
     required List<Map<String, dynamic>> items,
   }) async {
     final response = await _apiClient.dio.post(
@@ -240,6 +243,8 @@ class ApiService {
       data: {
         'cashier_id': cashierId,
         'shift_id': shiftId,
+        'counterparty_id': counterpartyId,
+        'is_on_credit': isOnCredit,
         'items': items,
       },
     );
@@ -358,6 +363,68 @@ class ApiService {
 
   Future<void> deleteProductReceipt(int id) async {
     await _apiClient.dio.delete('api/product-receipts/$id');
+  }
+
+  // Debt Payments
+  Future<List<DebtPayment>> getDebtPayments({
+    int? saleId,
+    int? counterpartyId,
+  }) async {
+    final queryParams = <String, dynamic>{};
+    if (saleId != null) queryParams['sale_id'] = saleId;
+    if (counterpartyId != null) queryParams['counterparty_id'] = counterpartyId;
+
+    final response = await _apiClient.dio.get(
+      'api/debt-payments',
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => DebtPayment.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<DebtPayment> createDebtPayment({
+    required int saleId,
+    required int counterpartyId,
+    required double amount,
+    required DateTime paymentDate,
+    String? notes,
+  }) async {
+    final response = await _apiClient.dio.post(
+      'api/debt-payments',
+      data: {
+        'sale_id': saleId,
+        'counterparty_id': counterpartyId,
+        'amount': amount,
+        'payment_date': paymentDate.toIso8601String(),
+        'notes': notes,
+      },
+    );
+    return DebtPayment.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Sale> payDebt(int saleId, {
+    required double amount,
+    required DateTime paymentDate,
+    String? notes,
+  }) async {
+    final response = await _apiClient.dio.post(
+      'api/sales/$saleId/pay-debt',
+      data: {
+        'amount': amount,
+        'payment_date': paymentDate.toIso8601String(),
+        'notes': notes,
+      },
+    );
+    return Sale.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  // Debtors
+  Future<List<Map<String, dynamic>>> getDebtors() async {
+    final response = await _apiClient.dio.get('api/debtors');
+    final list = response.data as List<dynamic>;
+    return list.map((e) => e as Map<String, dynamic>).toList();
   }
 }
 

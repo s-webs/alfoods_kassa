@@ -16,6 +16,7 @@ import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
 import '../utils/barcode_generator.dart';
 import '../widgets/add_product_dialog.dart';
+import '../widgets/credit_sale_dialog.dart';
 import '../widgets/invoice_dialog.dart';
 
 class CashierScreen extends StatefulWidget {
@@ -943,6 +944,75 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
+  Future<void> _sellOnCredit() async {
+    final state = CashierStateScope.of(context);
+    if (state.cart.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Корзина пуста')),
+      );
+      _refocusBarcodeField();
+      return;
+    }
+    final shift = _currentOpenShift;
+    if (shift == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Смена не открыта')),
+      );
+      _refocusBarcodeField();
+      return;
+    }
+
+    // Show credit sale dialog
+    final creditResult = await showDialog<CreditSaleResult>(
+      context: context,
+      builder: (ctx) => CreditSaleDialog(apiService: widget.apiService),
+    );
+
+    if (creditResult == null) return; // User cancelled
+
+    if (!creditResult.isOnCredit || creditResult.counterpartyId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Для продажи в долг необходимо выбрать контрагента'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSelling = true;
+      _error = null;
+    });
+    try {
+      if (state.lastSavedSaleId == null) {
+        final items = state.cart.map((c) => c.toJson()).toList();
+        await widget.apiService.createSale(
+          shiftId: shift.id,
+          items: items,
+          counterpartyId: creditResult.counterpartyId,
+          isOnCredit: true,
+        );
+      }
+      if (!mounted) return;
+      state.clearCart();
+      setState(() => _isSelling = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Продажа в долг оформлена')),
+        );
+        _refocusBarcodeField();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Не удалось оформить продажу в долг';
+        _isSelling = false;
+      });
+      _refocusBarcodeField();
+    }
+  }
+
   Future<void> _resetCart() async {
     final state = CashierStateScope.of(context);
     if (state.cart.isEmpty) return;
@@ -1684,7 +1754,17 @@ class _CashierScreenState extends State<CashierScreen> {
               ),
               style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
             )
-          else
+          else ...[
+            OutlinedButton.icon(
+              onPressed: isSellEnabled ? _sellOnCredit : null,
+              icon: const Icon(Icons.credit_card, size: 20),
+              label: const Text('Продать в долг'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+                side: const BorderSide(color: AppColors.danger),
+              ),
+            ),
+            const SizedBox(width: 12),
             FilledButton.icon(
               onPressed: isSellEnabled ? _sell : null,
               icon: _isSelling
@@ -1700,6 +1780,7 @@ class _CashierScreenState extends State<CashierScreen> {
               label: Text(_isSelling ? 'Оформление...' : 'Продать'),
               style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
             ),
+          ],
         ],
       ),
     );

@@ -392,6 +392,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 ),
                 const SizedBox(width: 8),
               ],
+              OutlinedButton.icon(
+                onPressed: _exportLowStockPdf,
+                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                label: const Text('PDF заканчивающихся'),
+              ),
+              const Spacer(),
               FilledButton.icon(
                 onPressed: () async {
                   final result = await context.push<bool>('/products/create');
@@ -399,12 +405,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 },
                 icon: const Icon(Icons.add, size: 20),
                 label: const Text('Добавить'),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: _exportLowStockPdf,
-                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                label: const Text('PDF заканчивающихся'),
               ),
             ],
           ),

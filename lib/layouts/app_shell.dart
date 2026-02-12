@@ -141,6 +141,12 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => context.go('/sales'),
                 ),
                 _NavItem(
+                  icon: PhosphorIconsRegular.creditCard,
+                  label: 'Должники',
+                  isSelected: currentLocation == '/debtors',
+                  onTap: () => context.go('/debtors'),
+                ),
+                _NavItem(
                   icon: PhosphorIconsRegular.package,
                   label: 'Поступления',
                   isSelected: currentLocation == '/product-receipts' ||
