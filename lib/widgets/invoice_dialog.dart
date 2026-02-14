@@ -10,6 +10,7 @@ import '../models/cart_item.dart';
 import '../models/counterparty.dart';
 import '../services/api_service.dart';
 import '../services/invoice_pdf_service.dart';
+import '../utils/toast.dart';
 
 /// Модальное окно для заполнения данных накладной и генерации PDF.
 /// [items] — позиции из корзины кассы или из продажи.
@@ -240,9 +241,7 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
         final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
         await File(savePath).writeAsBytes(pdfBytes);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Накладная сохранена: $savePath')),
-          );
+          showToast(context, 'Накладная сохранена: $savePath');
           Navigator.of(context).pop();
         }
       }
@@ -252,12 +251,7 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
           _isGenerating = false;
           _error = e.toString();
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ошибка: $e'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        showToast(context, 'Ошибка: $e');
       }
     }
     if (mounted) setState(() => _isGenerating = false);
@@ -319,20 +313,13 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
         onLayout: (format) async => pdfBytes,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Открыт диалог печати')),
-        );
+        showToast(context, 'Открыт диалог печати');
         Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isGenerating = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ошибка печати: $e'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        showToast(context, 'Ошибка печати: $e');
       }
     }
     if (mounted) setState(() => _isGenerating = false);

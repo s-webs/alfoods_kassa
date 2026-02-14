@@ -16,6 +16,7 @@ import '../services/api_service.dart';
 import '../services/label_pdf_service.dart';
 import '../utils/barcode_generator.dart';
 import '../utils/barcode_image_helper.dart';
+import '../utils/toast.dart';
 import '../widgets/label_canvas.dart';
 import '../widgets/label_style_controls.dart';
 
@@ -140,15 +141,11 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
             : '$path.jpg';
         await File(savePath).writeAsBytes(bytes);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Сохранено: $savePath')),
-        );
+        showToast(context, 'Сохранено: $savePath');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
-      );
+      showToast(context, 'Ошибка: $e');
     } finally {
       if (mounted) setState(() => _isSavingLabel = false);
     }
@@ -180,15 +177,11 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
             : '$path.jpg';
         await File(savePath).writeAsBytes(bytes);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Сохранено: $savePath')),
-        );
+        showToast(context, 'Сохранено: $savePath');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
-      );
+      showToast(context, 'Ошибка: $e');
     } finally {
       if (mounted) setState(() => _isSavingPriceTag = false);
     }
@@ -213,9 +206,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка печати: $e')),
-        );
+        showToast(context, 'Ошибка печати: $e');
       }
     } finally {
       if (mounted) setState(() => _isPrintingLabel = false);
@@ -241,9 +232,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка печати: $e')),
-        );
+        showToast(context, 'Ошибка печати: $e');
       }
     } finally {
       if (mounted) setState(() => _isPrintingPriceTag = false);
@@ -412,9 +401,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     final price = double.tryParse(_priceController.text);
     if (name.isEmpty) return;
     if (price == null || price < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Введите корректную цену')),
-      );
+      showToast(context, 'Введите корректную цену');
       return;
     }
 
@@ -748,6 +735,22 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                       ],
                     ),
                   ),
+                  if (!_labelBlockLayout.any((b) => b.type == LabelBlockType.description))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _labelBlockLayout = [
+                              ..._labelBlockLayout,
+                              const LabelBlockLayout(type: LabelBlockType.description, x: 0.05, y: 0.55),
+                            ];
+                          });
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Добавить блок: Описание'),
+                      ),
+                    ),
                   LabelCanvas(
                     product: _currentProductForLabel,
                     blockLayout: _labelBlockLayout,

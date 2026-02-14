@@ -7,6 +7,7 @@ import '../models/counterparty.dart';
 import '../models/product.dart';
 import '../models/product_set.dart';
 import '../services/api_service.dart';
+import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
 
 class ProductReceiptFormScreen extends StatefulWidget {
@@ -86,27 +87,19 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
       if (!mounted) return;
       if (product != null) {
         _addProduct(product);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Добавлено: ${product.name}')),
-        );
+        showToast(context, 'Добавлено: ${product.name}');
       } else {
         final productSet = await widget.apiService.getSetByBarcode(barcode);
         if (!mounted) return;
         if (productSet != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Сеты не поддерживаются в поступлениях')),
-          );
+          showToast(context, 'Сеты не поддерживаются в поступлениях');
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Товар с штрихкодом "$barcode" не найден')),
-          );
+          showToast(context, 'Товар с штрихкодом "$barcode" не найден');
         }
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ошибка поиска товара')),
-        );
+        showToast(context, 'Ошибка поиска товара');
       }
     } finally {
       if (mounted) setState(() => _isBarcodeLoading = false);
@@ -158,9 +151,7 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
 
   Future<void> _save() async {
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Добавьте хотя бы одну позицию')),
-      );
+      showToast(context, 'Добавьте хотя бы одну позицию');
       return;
     }
     setState(() {
@@ -176,9 +167,7 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
         items: _items.map((e) => e.toJson()).toList(),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Поступление создано')),
-      );
+      showToast(context, 'Поступление создано');
       context.go('/product-receipts/${receipt.id}');
     } catch (e) {
       if (!mounted) return;
@@ -186,9 +175,7 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
         _isSaving = false;
         _error = 'Не удалось сохранить поступление';
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_error ?? 'Ошибка')),
-      );
+      showToast(context, _error ?? 'Ошибка');
     }
   }
 

@@ -14,6 +14,7 @@ enum LabelBlockType {
   name,
   barcode,
   price,
+  description,
 }
 
 extension LabelBlockTypeX on LabelBlockType {
@@ -25,6 +26,8 @@ extension LabelBlockTypeX on LabelBlockType {
         return 'Штрихкод';
       case LabelBlockType.price:
         return 'Цена';
+      case LabelBlockType.description:
+        return 'Описание';
     }
   }
 }
@@ -62,6 +65,9 @@ class LabelBlockLayout {
       case 'price':
         t = LabelBlockType.price;
         break;
+      case 'description':
+        t = LabelBlockType.description;
+        break;
       default:
         t = LabelBlockType.name;
     }
@@ -84,6 +90,7 @@ class LabelStyle {
   const LabelStyle({
     this.nameFontSize = 8,
     this.priceFontSize = 10,
+    this.descriptionFontSize = 7,
     this.barcodeWidthFactor = 0.95,
     this.barcodeHeightFactor = 0.35,
   });
@@ -94,6 +101,9 @@ class LabelStyle {
   /// Размер шрифта цены (pt).
   final double priceFontSize;
 
+  /// Размер шрифта описания (pt).
+  final double descriptionFontSize;
+
   /// Ширина штрихкода — доля от ширины стикера (0..1).
   final double barcodeWidthFactor;
 
@@ -103,12 +113,14 @@ class LabelStyle {
   LabelStyle copyWith({
     double? nameFontSize,
     double? priceFontSize,
+    double? descriptionFontSize,
     double? barcodeWidthFactor,
     double? barcodeHeightFactor,
   }) =>
       LabelStyle(
         nameFontSize: nameFontSize ?? this.nameFontSize,
         priceFontSize: priceFontSize ?? this.priceFontSize,
+        descriptionFontSize: descriptionFontSize ?? this.descriptionFontSize,
         barcodeWidthFactor: barcodeWidthFactor ?? this.barcodeWidthFactor,
         barcodeHeightFactor: barcodeHeightFactor ?? this.barcodeHeightFactor,
       );
@@ -121,6 +133,7 @@ class LabelStyle {
   Map<String, dynamic> toJson() => {
         'nameFontSize': nameFontSize,
         'priceFontSize': priceFontSize,
+        'descriptionFontSize': descriptionFontSize,
         'barcodeWidthFactor': barcodeWidthFactor,
         'barcodeHeightFactor': barcodeHeightFactor,
       };
@@ -130,6 +143,7 @@ class LabelStyle {
     return LabelStyle(
       nameFontSize: (json['nameFontSize'] as num?)?.toDouble() ?? 8,
       priceFontSize: (json['priceFontSize'] as num?)?.toDouble() ?? 10,
+      descriptionFontSize: (json['descriptionFontSize'] as num?)?.toDouble() ?? 7,
       barcodeWidthFactor:
           (json['barcodeWidthFactor'] as num?)?.toDouble() ?? 0.95,
       barcodeHeightFactor:
@@ -445,6 +459,23 @@ class LabelPdfService {
               ),
             ),
           );
+          break;
+        case LabelBlockType.description:
+          final desc = product.meta?['description']?.toString() ?? '';
+          if (desc.isNotEmpty) {
+            content = pw.Padding(
+              padding: const pw.EdgeInsets.all(2),
+              child: pw.SizedBox(
+                width: widthPt * 0.9,
+                child: pw.Text(
+                  desc,
+                  style: pw.TextStyle(fontSize: style.descriptionFontSize),
+                  maxLines: 3,
+                  overflow: pw.TextOverflow.clip,
+                ),
+              ),
+            );
+          }
           break;
       }
       if (content != null) {

@@ -10,6 +10,7 @@ import '../models/category.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
 import '../services/label_pdf_service.dart';
+import '../utils/toast.dart';
 import '../widgets/product_edit_card.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -443,9 +444,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       _load(silent: true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
+        showToast(context, 'Ошибка: $e');
       }
     } finally {
       if (mounted) setState(() => _togglingActiveProductId = null);
@@ -517,9 +516,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         .toList();
     if (lowStock.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Нет заканчивающихся товаров')),
-      );
+      showToast(context, 'Нет заканчивающихся товаров');
       return;
     }
     try {
@@ -532,9 +529,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Ошибка печати: $e')));
+      showToast(context, 'Ошибка печати: $e');
     }
   }
 
@@ -544,9 +539,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   ) async {
     if (list.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Нет товаров для печати')));
+      showToast(context, 'Нет товаров для печати');
       return;
     }
     try {
@@ -574,9 +567,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Ошибка печати: $e')));
+      showToast(context, 'Ошибка печати: $e');
     }
   }
 

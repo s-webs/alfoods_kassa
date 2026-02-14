@@ -54,11 +54,11 @@ class ReceiptPrinterService {
     );
     generator.text(
       'Кассир: $cashierName',
-      style: const WPTextStyle(align: WPTextAlign.left),
+      style: const WPTextStyle(bold: true, align: WPTextAlign.left),
     );
     generator.text(
       'Товарный чек № $saleId',
-      style: const WPTextStyle(align: WPTextAlign.left),
+      style: const WPTextStyle(bold: true, align: WPTextAlign.left),
     );
     generator.separator();
 
@@ -74,7 +74,7 @@ class ReceiptPrinterService {
           _padRight('К-во', colQty) +
           _padRight('Цена', colPrice) +
           _padRight('Сумма', colSum),
-      style: const WPTextStyle(align: WPTextAlign.left),
+      style: const WPTextStyle(bold: true, align: WPTextAlign.left),
     );
     generator.separator();
 
@@ -95,7 +95,7 @@ class ReceiptPrinterService {
             _padRight(qty, colQty) +
             _padRight(priceStr, colPrice) +
             _padRight(sumStr, colSum),
-        style: const WPTextStyle(align: WPTextAlign.left),
+        style: const WPTextStyle(bold: true, align: WPTextAlign.left),
       );
     }
 
@@ -108,10 +108,10 @@ class ReceiptPrinterService {
     final dtStr =
         '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
         '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
-    generator.text(dtStr, style: const WPTextStyle(align: WPTextAlign.left));
+    generator.text(dtStr, style: const WPTextStyle(bold: true, align: WPTextAlign.left));
     generator.text(
       _center('Спасибо за покупку!', _lineWidth),
-      style: const WPTextStyle(align: WPTextAlign.center),
+      style: const WPTextStyle(bold: true, align: WPTextAlign.center),
     );
     generator.cut();
 

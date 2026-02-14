@@ -8,6 +8,7 @@ import '../models/category.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
 import '../utils/barcode_generator.dart';
+import '../utils/toast.dart';
 import '../utils/barcode_image_helper.dart';
 
 class ProductEditCard extends StatefulWidget {
@@ -126,15 +127,11 @@ class _ProductEditCardState extends State<ProductEditCard> {
     final name = _nameController.text.trim();
     final price = double.tryParse(_priceController.text);
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Введите название')),
-      );
+      showToast(context, 'Введите название');
       return;
     }
     if (price == null || price < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Введите корректную цену')),
-      );
+      showToast(context, 'Введите корректную цену');
       return;
     }
 

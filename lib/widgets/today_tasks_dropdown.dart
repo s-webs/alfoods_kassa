@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
+import '../utils/toast.dart';
 import '../models/task.dart';
 import '../state/task_state.dart';
 
@@ -274,11 +275,7 @@ class _TaskItemState extends State<_TaskItem> with SingleTickerProviderStateMixi
         _animationController.reverse();
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Не удалось обновить статус: ${e.toString()}'),
-            ),
-          );
+          showToast(context, 'Не удалось обновить статус: ${e.toString()}');
         }
       }
     } else {

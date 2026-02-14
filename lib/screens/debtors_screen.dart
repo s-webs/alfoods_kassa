@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../core/storage.dart';
 import '../core/theme.dart';
 import '../services/api_service.dart';
+import '../utils/toast.dart';
 import '../services/debtors_pdf_service.dart';
 import '../widgets/pay_debt_bulk_dialog.dart';
 
@@ -60,9 +61,7 @@ class _DebtorsScreenState extends State<DebtorsScreen> {
 
   Future<void> _generatePdf() async {
     if (_debtors.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Нет должников для формирования отчета')),
-      );
+      showToast(context, 'Нет должников для формирования отчета');
       return;
     }
 
@@ -86,19 +85,12 @@ class _DebtorsScreenState extends State<DebtorsScreen> {
         final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
         await File(savePath).writeAsBytes(pdfBytes);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('PDF сохранен: $savePath')),
-          );
+          showToast(context, 'PDF сохранен: $savePath');
         }
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ошибка генерации PDF: $e'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
+      showToast(context, 'Ошибка генерации PDF: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -280,22 +272,11 @@ class _DebtorsScreenState extends State<DebtorsScreen> {
                                                     notes: result.notes,
                                                   );
                                                   if (!mounted) return;
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(
-                                                        'Оплачено ${result.amount.toStringAsFixed(2)} ₸. Долги обновлены.',
-                                                      ),
-                                                    ),
-                                                  );
+                                                  showToast(context, 'Оплачено ${result.amount.toStringAsFixed(2)} ₸. Долги обновлены.');
                                                   _load();
                                                 } catch (e) {
                                                   if (!mounted) return;
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(
-                                                      content: Text('Ошибка: $e'),
-                                                      backgroundColor: AppColors.danger,
-                                                    ),
-                                                  );
+                                                  showToast(context, 'Ошибка: $e');
                                                 } finally {
                                                   if (mounted) setState(() => _payingDebtCounterpartyId = null);
                                                 }

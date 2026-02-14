@@ -7,6 +7,7 @@ import '../models/counterparty.dart';
 import '../models/product.dart';
 import '../models/product_receipt.dart';
 import '../services/api_service.dart';
+import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
 
 class ProductReceiptDetailScreen extends StatefulWidget {
@@ -88,9 +89,7 @@ class _ProductReceiptDetailScreenState
   Future<void> _save() async {
     if (_receipt == null) return;
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Добавьте хотя бы одну позицию')),
-      );
+      showToast(context, 'Добавьте хотя бы одну позицию');
       return;
     }
     setState(() {
@@ -105,9 +104,7 @@ class _ProductReceiptDetailScreenState
         items: _items.map((e) => e.toJson()).toList(),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Поступление обновлено')),
-      );
+      showToast(context, 'Поступление обновлено');
       context.pop(true);
     } catch (e) {
       if (!mounted) return;

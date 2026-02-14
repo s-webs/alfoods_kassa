@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
+import '../utils/toast.dart';
 
 /// Результат общей оплаты долгов (одной суммой по контрагенту).
 class PayDebtBulkResult {
@@ -71,24 +72,12 @@ class _PayDebtBulkDialogState extends State<PayDebtBulkDialog> {
     );
 
     if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Введите корректную сумму'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
+      showToast(context, 'Введите корректную сумму');
       return;
     }
 
     if (amount > widget.totalDebt) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Сумма не может превышать общий долг (${widget.totalDebt.toStringAsFixed(2)} ₸)',
-          ),
-          backgroundColor: AppColors.danger,
-        ),
-      );
+      showToast(context, 'Сумма не может превышать общий долг (${widget.totalDebt.toStringAsFixed(2)} ₸)');
       return;
     }
 

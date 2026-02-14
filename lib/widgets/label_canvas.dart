@@ -108,6 +108,7 @@ class _LabelCanvasState extends State<LabelCanvas> {
 
     final fs = widget.style.nameFontSize * 1.25; // pt → Flutter logical px
     final fp = widget.style.priceFontSize * 1.25;
+    final fd = widget.style.descriptionFontSize * 1.25;
 
     Widget content;
     switch (layout.type) {
@@ -144,6 +145,19 @@ class _LabelCanvasState extends State<LabelCanvas> {
           child: Text(
             product.effectivePrice.toStringAsFixed(2),
             style: TextStyle(fontSize: fp, fontWeight: FontWeight.bold),
+          ),
+        );
+        break;
+      case LabelBlockType.description:
+        final desc = product.meta?['description']?.toString() ?? '';
+        content = Container(
+          padding: const EdgeInsets.all(4),
+          constraints: BoxConstraints(maxWidth: _w * 0.9),
+          child: Text(
+            desc.isNotEmpty ? desc : 'Описание',
+            style: TextStyle(fontSize: fd, color: desc.isEmpty ? AppColors.muted : null),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
         );
         break;

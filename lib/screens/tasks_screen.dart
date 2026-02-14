@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/theme.dart';
 import '../models/task.dart';
 import '../services/api_service.dart';
+import '../utils/toast.dart';
 import '../state/task_state.dart';
 import '../widgets/task_form_dialog.dart';
 
@@ -72,9 +73,7 @@ class _TasksScreenState extends State<TasksScreen> {
         await todayTaskState.loadTodayTasks(force: true);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Не удалось создать задачу: ${e.toString()}')),
-          );
+          showToast(context, 'Не удалось создать задачу: ${e.toString()}');
         }
       }
     }
@@ -100,9 +99,7 @@ class _TasksScreenState extends State<TasksScreen> {
         await taskState.loadTodayTasks(force: true);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Не удалось обновить задачу: ${e.toString()}')),
-          );
+          showToast(context, 'Не удалось обновить задачу: ${e.toString()}');
         }
       }
     }
@@ -136,9 +133,7 @@ class _TasksScreenState extends State<TasksScreen> {
         await taskState.loadTodayTasks(force: true);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Не удалось удалить задачу: ${e.toString()}')),
-          );
+          showToast(context, 'Не удалось удалить задачу: ${e.toString()}');
         }
       }
     }
@@ -489,11 +484,7 @@ class _TasksScreenState extends State<TasksScreen> {
                                           await taskState.loadTodayTasks(force: true);
                                         } catch (e) {
                                           if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text('Не удалось обновить статус: ${e.toString()}'),
-                                              ),
-                                            );
+                                            showToast(context, 'Не удалось обновить статус: ${e.toString()}');
                                           }
                                         }
                                       }

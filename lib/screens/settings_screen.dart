@@ -8,6 +8,7 @@ import '../models/product.dart';
 import '../services/api_service.dart';
 import '../services/label_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
+import '../utils/toast.dart';
 import '../widgets/label_canvas.dart';
 import '../widgets/label_style_controls.dart';
 
@@ -137,9 +138,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await widget.storage.setReceiptPrinterName(name);
     setState(() => _selectedPrinterName = name);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Принтер для чеков сохранён')),
-      );
+      showToast(context, 'Принтер для чеков сохранён');
     }
   }
 
@@ -147,17 +146,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await widget.storage.setReceiptPrintMode(mode);
     setState(() => _printMode = mode);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            mode == 'pdf'
-                ? 'Установлена обычная печать (PDF с диалогом)'
-                : mode == 'pdf_direct'
-                    ? 'Установлена прямая печать PDF (без диалога)'
-                    : 'Установлена RAW печать',
-          ),
-        ),
-      );
+      showToast(context, mode == 'pdf'
+          ? 'Установлена обычная печать (PDF с диалогом)'
+          : mode == 'pdf_direct'
+              ? 'Установлена прямая печать PDF (без диалога)'
+              : 'Установлена RAW печать');
     }
   }
 
@@ -183,9 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : _entrepreneurAddressController.text.trim(),
     );
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Данные предпринимателя сохранены')),
-      );
+      showToast(context, 'Данные предпринимателя сохранены');
     }
   }
 
@@ -484,6 +475,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ],
                         ),
                       ),
+                      if (!_labelTemplate.blockLayout
+                          .any((b) => b.type == LabelBlockType.description))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _labelTemplate = LabelTemplate(
+                                  blockLayout: [
+                                    ..._labelTemplate.blockLayout,
+                                    const LabelBlockLayout(
+                                        type: LabelBlockType.description,
+                                        x: 0.05,
+                                        y: 0.55),
+                                  ],
+                                  style: _labelTemplate.style,
+                                  widthMm: _labelTemplate.widthMm,
+                                  heightMm: _labelTemplate.heightMm,
+                                );
+                              });
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Добавить блок: Описание'),
+                          ),
+                        ),
                       LabelCanvas(
                         product: _previewProduct,
                         blockLayout: _labelTemplate.blockLayout,
@@ -504,10 +520,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.storage
                               .setLabelTemplateJson(_labelTemplate.toJson());
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Макет этикеток сохранён')),
-                            );
+                            showToast(context, 'Макет этикеток сохранён');
                           }
                         },
                         child: const Text('Сохранить как макет по умолчанию'),
@@ -591,6 +604,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ],
                         ),
                       ),
+                      if (!_priceTagTemplate.blockLayout
+                          .any((b) => b.type == LabelBlockType.description))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _priceTagTemplate = LabelTemplate(
+                                  blockLayout: [
+                                    ..._priceTagTemplate.blockLayout,
+                                    const LabelBlockLayout(
+                                        type: LabelBlockType.description,
+                                        x: 0.05,
+                                        y: 0.55),
+                                  ],
+                                  style: _priceTagTemplate.style,
+                                  widthMm: _priceTagTemplate.widthMm,
+                                  heightMm: _priceTagTemplate.heightMm,
+                                );
+                              });
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Добавить блок: Описание'),
+                          ),
+                        ),
                       LabelCanvas(
                         product: _previewProduct,
                         blockLayout: _priceTagTemplate.blockLayout,
@@ -612,10 +650,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               .setPriceTagTemplateJson(
                                   _priceTagTemplate.toJson());
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Макет ценников сохранён')),
-                            );
+                            showToast(context, 'Макет ценников сохранён');
                           }
                         },
                         child: const Text('Сохранить как макет по умолчанию'),

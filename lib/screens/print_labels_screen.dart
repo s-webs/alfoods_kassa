@@ -8,6 +8,7 @@ import '../core/theme.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
 import '../services/label_pdf_service.dart';
+import '../utils/toast.dart';
 import '../widgets/label_canvas.dart';
 import '../widgets/label_style_controls.dart';
 
@@ -145,9 +146,7 @@ class _PrintLabelsScreenState extends State<PrintLabelsScreen> {
 
   Future<void> _saveJpg() async {
     if (_products.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Нет товаров для печати')),
-      );
+      showToast(context, 'Нет товаров для печати');
       return;
     }
     setState(() => _isSaving = true);
@@ -192,15 +191,11 @@ class _PrintLabelsScreenState extends State<PrintLabelsScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Сохранено $saved этикеток в $dirPath')),
-        );
+        showToast(context, 'Сохранено $saved этикеток в $dirPath');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
-      );
+      showToast(context, 'Ошибка: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

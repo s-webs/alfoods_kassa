@@ -34,6 +34,18 @@ class LabelStyleControls extends StatelessWidget {
               onChanged: (v) => onChanged(style.copyWith(nameFontSize: v)),
             ),
             Text(
+              'Размер шрифта описания: ${style.descriptionFontSize.toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 12),
+            ),
+            Slider(
+              value: style.descriptionFontSize,
+              min: LabelStyle.minFontSize,
+              max: LabelStyle.maxFontSize,
+              divisions: 16,
+              label: style.descriptionFontSize.toStringAsFixed(0),
+              onChanged: (v) => onChanged(style.copyWith(descriptionFontSize: v)),
+            ),
+            Text(
               'Размер шрифта цены: ${style.priceFontSize.toStringAsFixed(0)}',
               style: const TextStyle(fontSize: 12),
             ),

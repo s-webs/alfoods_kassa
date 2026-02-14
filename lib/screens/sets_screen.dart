@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
 import '../models/product_set.dart';
 import '../services/api_service.dart';
+import '../utils/toast.dart';
 
 class SetsScreen extends StatefulWidget {
   const SetsScreen({super.key, required this.apiService});
@@ -120,9 +121,7 @@ class _SetsScreenState extends State<SetsScreen> {
       _load(silent: true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка: $e')),
-        );
+        showToast(context, 'Ошибка: $e');
       }
     } finally {
       if (mounted) setState(() => _togglingActiveSetId = null);

@@ -19,6 +19,7 @@ import '../widgets/invoice_dialog.dart';
 import '../widgets/pay_debt_dialog.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
+import '../utils/toast.dart';
 
 class SaleDetailScreen extends StatefulWidget {
   const SaleDetailScreen({
@@ -125,9 +126,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   Future<void> _save() async {
     if (_sale == null) return;
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Добавьте хотя бы одну позицию')),
-      );
+      showToast(context, 'Добавьте хотя бы одну позицию');
       return;
     }
     setState(() {
@@ -480,13 +479,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         setState(() {
           _isSaving = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Оплата на сумму ${result.amount.toStringAsFixed(2)} ₸ зарегистрирована',
-            ),
-          ),
-        );
+        showToast(context, 'Оплата на сумму ${result.amount.toStringAsFixed(2)} ₸ зарегистрирована');
       }
     } catch (e) {
       if (!mounted) return;
@@ -527,9 +520,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         _sale = updated;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Возврат оформлен')),
-        );
+        showToast(context, 'Возврат оформлен');
       }
       context.pop(true);
     } catch (e) {
@@ -541,17 +532,11 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   Future<void> _printReceipt() async {
     final printMode = widget.storage.receiptPrintMode;
     if ((printMode == 'raw' || printMode == 'pdf_direct') && !Platform.isWindows) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('RAW и PDF Direct печать доступны только на Windows'),
-        ),
-      );
+      showToast(context, 'RAW и PDF Direct печать доступны только на Windows');
       return;
     }
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Нет позиций для печати')),
-      );
+      showToast(context, 'Нет позиций для печати');
       return;
     }
     final cashiersMatch = _cashiers.where((c) => c.id == _selectedCashierId).toList();
@@ -576,34 +561,20 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         dateTime: dateTime,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            printMode == 'pdf'
-                ? 'Открыт диалог печати'
-                : printMode == 'pdf_direct'
-                    ? 'PDF отправлен на печать'
-                    : 'Чек отправлен на печать',
-          ),
-        ),
-      );
+      showToast(context, printMode == 'pdf'
+          ? 'Открыт диалог печати'
+          : printMode == 'pdf_direct'
+              ? 'PDF отправлен на печать'
+              : 'Чек отправлен на печать');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Ошибка печати: ${e.toString().replaceFirst('Exception: ', '')}',
-          ),
-        ),
-      );
+      showToast(context, 'Ошибка печати: ${e.toString().replaceFirst('Exception: ', '')}');
     }
   }
 
   Future<void> _saveReceiptPdf() async {
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Нет позиций для сохранения')),
-      );
+      showToast(context, 'Нет позиций для сохранения');
       return;
     }
     final cashiersMatch = _cashiers.where((c) => c.id == _selectedCashierId).toList();
@@ -627,19 +598,11 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
         await File(savePath).writeAsBytes(pdfBytes);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Чек сохранён: $savePath')),
-        );
+        showToast(context, 'Чек сохранён: $savePath');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
-          ),
-        ),
-      );
+      showToast(context, 'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}');
     }
   }
 

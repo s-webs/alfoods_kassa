@@ -13,6 +13,7 @@ import '../core/theme.dart';
 import '../models/product.dart';
 import '../models/product_set.dart';
 import '../services/api_service.dart';
+import '../utils/toast.dart';
 import '../services/label_pdf_service.dart';
 import '../utils/barcode_generator.dart';
 import '../utils/barcode_image_helper.dart';
@@ -153,15 +154,11 @@ class _SetFormScreenState extends State<SetFormScreen> {
             : '$path.jpg';
         await File(savePath).writeAsBytes(bytes);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Сохранено: $savePath')),
-        );
+        showToast(context, 'Сохранено: $savePath');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
-      );
+      showToast(context, 'Ошибка: $e');
     } finally {
       if (mounted) setState(() => _isSavingLabel = false);
     }
@@ -193,15 +190,11 @@ class _SetFormScreenState extends State<SetFormScreen> {
             : '$path.jpg';
         await File(savePath).writeAsBytes(bytes);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Сохранено: $savePath')),
-        );
+        showToast(context, 'Сохранено: $savePath');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
-      );
+      showToast(context, 'Ошибка: $e');
     } finally {
       if (mounted) setState(() => _isSavingPriceTag = false);
     }
@@ -226,9 +219,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка печати: $e')),
-        );
+        showToast(context, 'Ошибка печати: $e');
       }
     } finally {
       if (mounted) setState(() => _isPrintingLabel = false);
@@ -254,9 +245,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка печати: $e')),
-        );
+        showToast(context, 'Ошибка печати: $e');
       }
     } finally {
       if (mounted) setState(() => _isPrintingPriceTag = false);
@@ -463,15 +452,11 @@ class _SetFormScreenState extends State<SetFormScreen> {
     final price = double.tryParse(_priceController.text);
     if (name.isEmpty) return;
     if (price == null || price < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Введите корректную цену')),
-      );
+      showToast(context, 'Введите корректную цену');
       return;
     }
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Добавьте хотя бы один товар в сет')),
-      );
+      showToast(context, 'Добавьте хотя бы один товар в сет');
       return;
     }
 
@@ -806,6 +791,22 @@ class _SetFormScreenState extends State<SetFormScreen> {
                       ],
                     ),
                   ),
+                  if (!_labelBlockLayout.any((b) => b.type == LabelBlockType.description))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _labelBlockLayout = [
+                              ..._labelBlockLayout,
+                              const LabelBlockLayout(type: LabelBlockType.description, x: 0.05, y: 0.55),
+                            ];
+                          });
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Добавить блок: Описание'),
+                      ),
+                    ),
                   LabelCanvas(
                     product: _currentSetForLabel,
                     blockLayout: _labelBlockLayout,

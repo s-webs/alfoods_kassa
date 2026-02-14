@@ -66,11 +66,11 @@ class ReceiptPdfService {
               pw.SizedBox(height: 6),
               pw.Align(
                 alignment: pw.Alignment.centerLeft,
-                child: pw.Text('Кассир: $cashierName', style: const pw.TextStyle(fontSize: 10)),
+                child: pw.Text('Кассир: $cashierName', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
               ),
               pw.Align(
                 alignment: pw.Alignment.centerLeft,
-                child: pw.Text('Товарный чек № $saleId', style: const pw.TextStyle(fontSize: 10)),
+                child: pw.Text('Товарный чек № $saleId', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
               ),
               pw.SizedBox(height: 8),
               pw.Divider(thickness: 1),
@@ -142,7 +142,7 @@ class ReceiptPdfService {
                           padding: const pw.EdgeInsets.only(right: 2, top: 2, bottom: 2),
                           child: pw.Text(
                             '$i',
-                            style: const pw.TextStyle(fontSize: 9),
+                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                             textAlign: pw.TextAlign.left,
                           ),
                         ),
@@ -150,7 +150,7 @@ class ReceiptPdfService {
                           padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2),
                           child: pw.Text(
                             name,
-                            style: const pw.TextStyle(fontSize: 9),
+                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                             textAlign: pw.TextAlign.left,
                           ),
                         ),
@@ -158,7 +158,7 @@ class ReceiptPdfService {
                           padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2),
                           child: pw.Text(
                             qty,
-                            style: const pw.TextStyle(fontSize: 9),
+                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -166,7 +166,7 @@ class ReceiptPdfService {
                           padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2),
                           child: pw.Text(
                             _formatSum(item.price),
-                            style: const pw.TextStyle(fontSize: 9),
+                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -174,7 +174,7 @@ class ReceiptPdfService {
                           padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2),
                           child: pw.Text(
                             _formatSum(item.total),
-                            style: const pw.TextStyle(fontSize: 9),
+                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                             textAlign: pw.TextAlign.right,
                           ),
                         ),
@@ -193,11 +193,11 @@ class ReceiptPdfService {
                 ],
               ),
               pw.SizedBox(height: 6),
-              pw.Text(dtStr, style: const pw.TextStyle(fontSize: 9)),
+              pw.Text(dtStr, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 8),
               pw.Text(
                 'Спасибо за покупку!',
-                style: pw.TextStyle(fontSize: 10),
+                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
               ),
             ],
           );
