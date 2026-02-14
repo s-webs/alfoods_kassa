@@ -86,7 +86,9 @@ class _LabelCanvasState extends State<LabelCanvas> {
       height: _h,
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: AppColors.muted),
+        border: widget.style.showBorder
+            ? Border.all(color: AppColors.muted)
+            : null,
         borderRadius: BorderRadius.circular(8),
       ),
       child: product == null
@@ -95,7 +97,7 @@ class _LabelCanvasState extends State<LabelCanvas> {
               clipBehavior: Clip.none,
               children: [
                 for (var i = 0; i < widget.blockLayout.length; i++)
-                  _buildBlockAt(i, product),
+                  if (widget.blockLayout[i].visible) _buildBlockAt(i, product),
               ],
             ),
     );

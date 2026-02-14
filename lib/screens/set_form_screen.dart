@@ -778,6 +778,9 @@ class _SetFormScreenState extends State<SetFormScreen> {
                   LabelStyleControls(
                     style: _labelStyle,
                     onChanged: (s) => setState(() => _labelStyle = s),
+                    blockLayout: _labelBlockLayout,
+                    onLayoutChanged: (layout) =>
+                        setState(() => _labelBlockLayout = layout),
                   ),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
@@ -885,6 +888,9 @@ class _SetFormScreenState extends State<SetFormScreen> {
                   LabelStyleControls(
                     style: _priceTagStyle,
                     onChanged: (s) => setState(() => _priceTagStyle = s),
+                    blockLayout: _priceTagBlockLayout,
+                    onLayoutChanged: (layout) =>
+                        setState(() => _priceTagBlockLayout = layout),
                   ),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),

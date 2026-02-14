@@ -414,6 +414,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           widthMm: _labelTemplate.widthMm,
                           heightMm: _labelTemplate.heightMm,
                         )),
+                        blockLayout: _labelTemplate.blockLayout,
+                        onLayoutChanged: (layout) => setState(() =>
+                            _labelTemplate = LabelTemplate(
+                          blockLayout: layout,
+                          style: _labelTemplate.style,
+                          widthMm: _labelTemplate.widthMm,
+                          heightMm: _labelTemplate.heightMm,
+                        )),
                       ),
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -538,6 +546,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             LabelTemplate(
                           blockLayout: _priceTagTemplate.blockLayout,
                           style: s,
+                          widthMm: _priceTagTemplate.widthMm,
+                          heightMm: _priceTagTemplate.heightMm,
+                        )),
+                        blockLayout: _priceTagTemplate.blockLayout,
+                        onLayoutChanged: (layout) => setState(() =>
+                            _priceTagTemplate = LabelTemplate(
+                          blockLayout: layout,
+                          style: _priceTagTemplate.style,
                           widthMm: _priceTagTemplate.widthMm,
                           heightMm: _priceTagTemplate.heightMm,
                         )),

@@ -8,10 +8,14 @@ class LabelStyleControls extends StatelessWidget {
     super.key,
     required this.style,
     required this.onChanged,
+    this.blockLayout,
+    this.onLayoutChanged,
   });
 
   final LabelStyle style;
   final void Function(LabelStyle) onChanged;
+  final List<LabelBlockLayout>? blockLayout;
+  final void Function(List<LabelBlockLayout>)? onLayoutChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +25,32 @@ class LabelStyleControls extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            SwitchListTile(
+              title: const Text('Показать границу', style: TextStyle(fontSize: 14)),
+              value: style.showBorder,
+              onChanged: (v) => onChanged(style.copyWith(showBorder: v)),
+              contentPadding: EdgeInsets.zero,
+            ),
+            if (blockLayout != null && onLayoutChanged != null) ...[
+              const SizedBox(height: 8),
+              const Text('Видимость блоков', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              ...blockLayout!.asMap().entries.map((e) {
+                final i = e.key;
+                final layout = e.value;
+                return SwitchListTile(
+                  title: Text(layout.type.title, style: const TextStyle(fontSize: 13)),
+                  value: layout.visible,
+                  onChanged: (v) {
+                    final newLayout = List<LabelBlockLayout>.from(blockLayout!);
+                    newLayout[i] = layout.copyWith(visible: v);
+                    onLayoutChanged!(newLayout);
+                  },
+                  contentPadding: EdgeInsets.zero,
+                );
+              }),
+              const SizedBox(height: 8),
+            ],
             Text(
               'Размер шрифта названия: ${style.nameFontSize.toStringAsFixed(0)}',
               style: const TextStyle(fontSize: 12),

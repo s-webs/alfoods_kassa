@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:windows_printer/windows_printer.dart';
 
@@ -28,6 +27,29 @@ class ReceiptPrinterService {
     final pad = width - s.length;
     final left = pad ~/ 2;
     return ' ' * left + s + ' ' * (pad - left);
+  }
+
+  /// Разбивает текст на строки по maxWidth символов, по возможности по словам.
+  static List<String> _wrapText(String text, int maxWidth) {
+    if (text.isEmpty) return [''];
+    if (text.length <= maxWidth) return [text];
+    final lines = <String>[];
+    var remaining = text;
+    while (remaining.isNotEmpty) {
+      if (remaining.length <= maxWidth) {
+        lines.add(remaining);
+        break;
+      }
+      var splitAt = maxWidth;
+      final chunk = remaining.substring(0, maxWidth);
+      final lastSpace = chunk.lastIndexOf(' ');
+      if (lastSpace > maxWidth ~/ 2) {
+        splitAt = lastSpace + 1;
+      }
+      lines.add(remaining.substring(0, splitAt).trim());
+      remaining = remaining.substring(splitAt).trimLeft();
+    }
+    return lines;
   }
 
   static String _formatSum(double v) {
@@ -81,22 +103,30 @@ class ReceiptPrinterService {
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
       final no = '${i + 1}';
-      final name = item.name.length > colName
-          ? '${item.name.substring(0, colName - 1)}…'
-          : item.name;
+      final nameLines = _wrapText(item.name, colName);
       final qty = item.unit == 'pcs'
           ? item.quantity.toInt().toString()
           : item.quantity.toStringAsFixed(2);
       final priceStr = _formatSum(item.price);
       final sumStr = _formatSum(item.total);
-      generator.text(
-        _padRight(no, colNo) +
-            _padRight(name, colName) +
-            _padRight(qty, colQty) +
-            _padRight(priceStr, colPrice) +
-            _padRight(sumStr, colSum),
-        style: const WPTextStyle(bold: true, align: WPTextAlign.left),
-      );
+      for (var lineIndex = 0; lineIndex < nameLines.length; lineIndex++) {
+        final namePart = _padRight(nameLines[lineIndex], colName);
+        if (lineIndex == 0) {
+          generator.text(
+            _padRight(no, colNo) +
+                namePart +
+                _padRight(qty, colQty) +
+                _padRight(priceStr, colPrice) +
+                _padRight(sumStr, colSum),
+            style: const WPTextStyle(bold: true, align: WPTextAlign.left),
+          );
+        } else {
+          generator.text(
+            _padRight('', colNo) + namePart + _padRight('', colQty) + _padRight('', colPrice) + _padRight('', colSum),
+            style: const WPTextStyle(bold: true, align: WPTextAlign.left),
+          );
+        }
+      }
     }
 
     generator.separator();

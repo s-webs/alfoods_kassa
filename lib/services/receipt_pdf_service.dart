@@ -132,7 +132,6 @@ class ReceiptPdfService {
                   ...items.asMap().entries.map((e) {
                     final i = e.key + 1;
                     final item = e.value;
-                    final name = item.name.length > 22 ? '${item.name.substring(0, 21)}…' : item.name;
                     final qty = item.unit == 'pcs'
                         ? item.quantity.toInt().toString()
                         : item.quantity.toStringAsFixed(2);
@@ -148,10 +147,15 @@ class ReceiptPdfService {
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-                          child: pw.Text(
-                            name,
-                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
-                            textAlign: pw.TextAlign.left,
+                          child: pw.SizedBox(
+                            width: 120,
+                            child: pw.Text(
+                              item.name,
+                              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+                              textAlign: pw.TextAlign.left,
+                              maxLines: null,
+                              overflow: pw.TextOverflow.clip,
+                            ),
                           ),
                         ),
                         pw.Padding(

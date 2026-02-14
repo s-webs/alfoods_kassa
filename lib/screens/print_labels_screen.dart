@@ -134,7 +134,7 @@ class _PrintLabelsScreenState extends State<PrintLabelsScreen> {
       return LabelTemplate.fromJson(metaVal);
     }
     if (metaVal is Map) {
-      return LabelTemplate.fromJson(Map<String, dynamic>.from(metaVal as Map));
+      return LabelTemplate.fromJson(Map<String, dynamic>.from(metaVal));
     }
     return LabelTemplate(
       blockLayout: _blockLayout,
@@ -327,6 +327,9 @@ class _PrintLabelsScreenState extends State<PrintLabelsScreen> {
                       LabelStyleControls(
                         style: _labelStyle,
                         onChanged: (s) => setState(() => _labelStyle = s),
+                        blockLayout: _blockLayout,
+                        onLayoutChanged: (layout) =>
+                            setState(() => _blockLayout = layout),
                       ),
                       const SizedBox(height: 16),
                       const Text(
