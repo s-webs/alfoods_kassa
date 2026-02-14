@@ -55,6 +55,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
   final _priceController = TextEditingController();
   final _discountPriceController = TextEditingController();
   final _barcodeController = TextEditingController();
+  final _labelDescriptionController = TextEditingController();
 
   ProductSet? _set;
   List<_SetItem> _items = [];
@@ -103,7 +104,11 @@ class _SetFormScreenState extends State<SetFormScreen> {
   }
 
   Product get _currentSetForLabel {
+    final desc = _labelDescriptionController.text.trim();
     if (_set != null) {
+      final merged = Map<String, dynamic>.from(_set!.meta ?? {});
+      if (desc.isNotEmpty) merged['description'] = desc;
+      else merged.remove('description');
       return Product(
         id: 0,
         name: _set!.name,
@@ -112,8 +117,10 @@ class _SetFormScreenState extends State<SetFormScreen> {
         price: _set!.price,
         discountPrice: _set!.discountPrice,
         unit: 'pcs',
+        meta: merged.isEmpty ? null : merged,
       );
     }
+    final metaWithDesc = desc.isEmpty ? null : <String, dynamic>{'description': desc};
     final price = double.tryParse(_priceController.text) ?? 0;
     final discountPrice = double.tryParse(_discountPriceController.text);
     final barcodeStr = _barcodeController.text.trim();
@@ -125,6 +132,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
       price: price,
       discountPrice: discountPrice,
       unit: 'pcs',
+      meta: metaWithDesc,
     );
   }
 
@@ -260,6 +268,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
     _priceController.dispose();
     _discountPriceController.dispose();
     _barcodeController.dispose();
+    _labelDescriptionController.dispose();
     super.dispose();
   }
 
@@ -297,7 +306,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
     return false;
   }
 
-  Map<String, dynamic>? _buildMetaIfOverridden() {
+  Map<String, dynamic>? _buildMetaForSave() {
     final defaultLabel = _templateFromMetaOrStorage(
       null,
       widget.storage.labelTemplateJson,
@@ -322,11 +331,14 @@ class _SetFormScreenState extends State<SetFormScreen> {
     );
     final labelDiff = _templateDiffers(labelTpl, defaultLabel);
     final priceTagDiff = _templateDiffers(priceTagTpl, defaultPriceTag);
-    if (!labelDiff && !priceTagDiff) return null;
-    final meta = <String, dynamic>{};
+    final desc = _labelDescriptionController.text.trim();
+    if (!labelDiff && !priceTagDiff && desc.isEmpty) return null;
+    final meta = Map<String, dynamic>.from(_set?.meta ?? {});
+    if (desc.isNotEmpty) meta['description'] = desc;
+    else meta.remove('description');
     if (labelDiff) meta['label'] = labelTpl.toJson();
     if (priceTagDiff) meta['priceTag'] = priceTagTpl.toJson();
-    return meta;
+    return meta.isEmpty ? null : meta;
   }
 
   Future<void> _loadData() async {
@@ -366,6 +378,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
           _labelWidthMm = labelTpl.widthMm;
           _labelHeightMm = labelTpl.heightMm;
           _labelStyle = labelTpl.style;
+          _labelDescriptionController.text = s.meta?['description']?.toString() ?? '';
           _priceTagBlockLayout = priceTagTpl.blockLayout;
           _priceTagWidthMm = priceTagTpl.widthMm;
           _priceTagHeightMm = priceTagTpl.heightMm;
@@ -478,8 +491,12 @@ class _SetFormScreenState extends State<SetFormScreen> {
       if (dp != null && dp > 0) {
         data['discount_price'] = dp;
       }
+      final desc = _labelDescriptionController.text.trim();
+      if (desc.isNotEmpty) {
+        data['meta'] = {'description': desc};
+      }
       if (widget.mode == SetFormMode.edit && widget.setId != null) {
-        final meta = _buildMetaIfOverridden();
+        final meta = _buildMetaForSave();
         if (meta != null && meta.isNotEmpty) {
           data['meta'] = meta;
         }
@@ -745,6 +762,19 @@ class _SetFormScreenState extends State<SetFormScreen> {
                 subtitle: const Text('По умолчанию — макет из настроек'),
                 initiallyExpanded: false,
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextFormField(
+                      controller: _labelDescriptionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Описание для этикетки',
+                        hintText: 'Текст для блока «Описание» на этикетке (необязательно)',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
                   LabelStyleControls(
                     style: _labelStyle,
                     onChanged: (s) => setState(() => _labelStyle = s),

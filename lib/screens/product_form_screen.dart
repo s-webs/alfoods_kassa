@@ -48,6 +48,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   final _stockController = TextEditingController();
   final _stockThresholdController = TextEditingController();
   final _barcodeController = TextEditingController();
+  final _labelDescriptionController = TextEditingController();
 
   Product? _product;
   List<Category> _categories = [];
@@ -98,9 +99,31 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     if (mounted) setState(() => _barcodePreviewBytes = bytes);
   }
 
-  /// Товар для превью/PDF этикетки: в режиме редактирования — загруженный, в создании — из полей формы.
+  /// Товар для превью/PDF этикетки: в режиме редактирования — загруженный с учётом описания из формы, в создании — из полей формы.
   Product get _currentProductForLabel {
-    if (_product != null) return _product!;
+    final desc = _labelDescriptionController.text.trim();
+    final metaWithDesc = desc.isEmpty ? null : <String, dynamic>{'description': desc};
+    if (_product != null) {
+      if (metaWithDesc == null) return _product!;
+      final merged = Map<String, dynamic>.from(_product!.meta ?? {});
+      merged['description'] = desc;
+      return Product(
+        id: _product!.id,
+        categoryId: _product!.categoryId,
+        name: _product!.name,
+        newName: _product!.newName,
+        slug: _product!.slug,
+        barcode: _product!.barcode,
+        price: _product!.price,
+        discountPrice: _product!.discountPrice,
+        purchasePrice: _product!.purchasePrice,
+        stock: _product!.stock,
+        stockThreshold: _product!.stockThreshold,
+        unit: _product!.unit,
+        isActive: _product!.isActive,
+        meta: merged,
+      );
+    }
     final price = double.tryParse(_priceController.text) ?? 0;
     final discountPrice = double.tryParse(_discountPriceController.text);
     final barcodeStr = _barcodeController.text.trim();
@@ -112,6 +135,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       price: price,
       discountPrice: discountPrice,
       unit: _selectedUnit,
+      meta: metaWithDesc,
     );
   }
 
@@ -249,6 +273,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     _stockController.dispose();
     _stockThresholdController.dispose();
     _barcodeController.dispose();
+    _labelDescriptionController.dispose();
     super.dispose();
   }
 
@@ -290,6 +315,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
           _labelWidthMm = labelTpl.widthMm;
           _labelHeightMm = labelTpl.heightMm;
           _labelStyle = labelTpl.style;
+          _labelDescriptionController.text = p.meta?['description']?.toString() ?? '';
           _priceTagBlockLayout = priceTagTpl.blockLayout;
           _priceTagWidthMm = priceTagTpl.widthMm;
           _priceTagHeightMm = priceTagTpl.heightMm;
@@ -329,7 +355,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     }
   }
 
-  Map<String, dynamic>? _buildMetaIfOverridden() {
+  Map<String, dynamic>? _buildMetaForSave() {
     final defaultLabel = _templateFromMetaOrStorage(
       null,
       widget.storage.labelTemplateJson,
@@ -354,11 +380,14 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     );
     final labelDiff = _templateDiffers(labelTpl, defaultLabel);
     final priceTagDiff = _templateDiffers(priceTagTpl, defaultPriceTag);
-    if (!labelDiff && !priceTagDiff) return null;
-    final meta = <String, dynamic>{};
+    final desc = _labelDescriptionController.text.trim();
+    if (!labelDiff && !priceTagDiff && desc.isEmpty) return null;
+    final meta = Map<String, dynamic>.from(_product?.meta ?? {});
+    if (desc.isNotEmpty) meta['description'] = desc;
+    else meta.remove('description');
     if (labelDiff) meta['label'] = labelTpl.toJson();
     if (priceTagDiff) meta['priceTag'] = priceTagTpl.toJson();
-    return meta;
+    return meta.isEmpty ? null : meta;
   }
 
   bool _templateDiffers(LabelTemplate a, LabelTemplate b) {
@@ -426,8 +455,12 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       if (dp != null && dp > 0) {
         data['discount_price'] = dp;
       }
+      final desc = _labelDescriptionController.text.trim();
+      if (desc.isNotEmpty) {
+        data['meta'] = {'description': desc};
+      }
       if (widget.mode == ProductFormMode.edit && widget.productId != null) {
-        final meta = _buildMetaIfOverridden();
+        final meta = _buildMetaForSave();
         if (meta != null && meta.isNotEmpty) {
           data['meta'] = meta;
         }
@@ -689,6 +722,19 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                 subtitle: const Text('По умолчанию — макет из настроек'),
                 initiallyExpanded: false,
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextFormField(
+                      controller: _labelDescriptionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Описание для этикетки',
+                        hintText: 'Текст для блока «Описание» на этикетке (необязательно)',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
                   LabelStyleControls(
                     style: _labelStyle,
                     onChanged: (s) => setState(() => _labelStyle = s),
