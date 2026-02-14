@@ -1,8 +1,9 @@
-import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/pdf.dart';
 
 import '../core/theme.dart';
 import '../models/category.dart';
@@ -46,7 +47,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
     if (value == value.roundToDouble()) return value.toInt().toString();
     final s = value.toStringAsFixed(2);
     if (s.contains('.')) {
-      final trimmed = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+      final trimmed = s
+          .replaceAll(RegExp(r'0+$'), '')
+          .replaceAll(RegExp(r'\.$'), '');
       return trimmed;
     }
     return s;
@@ -121,7 +124,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
         _sortAsc = !_sortAsc;
       } else {
         _sortKey = key;
-        _sortAsc = (key == _ProductsSortKey.name || key == _ProductsSortKey.stock);
+        _sortAsc =
+            (key == _ProductsSortKey.name || key == _ProductsSortKey.stock);
       }
     });
   }
@@ -144,6 +148,250 @@ class _ProductsScreenState extends State<ProductsScreen> {
               size: 16,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTableHeader(List<Product> sortedProducts) {
+    final allSelected =
+        sortedProducts.isNotEmpty &&
+        sortedProducts.every((p) => _selectedProductIds.contains(p.id));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      color: AppColors.primaryLight.withValues(alpha: 0.5),
+      child: Row(
+        children: [
+          SizedBox(
+            width: _colCheck,
+            child: Center(
+              child: Checkbox(
+                value: allSelected,
+                onChanged: (value) {
+                  setState(() {
+                    if (value == true) {
+                      _selectedProductIds.clear();
+                      _selectedProductIds.addAll(
+                        sortedProducts.map((p) => p.id),
+                      );
+                      _selectedProduct = null;
+                    } else {
+                      _selectedProductIds.removeWhere(
+                        (id) => sortedProducts.any((p) => p.id == id),
+                      );
+                      _selectedProduct = null;
+                    }
+                  });
+                },
+              ),
+            ),
+          ),
+          SizedBox(
+            width: _colId,
+            child: _sortHeader('ID', _ProductsSortKey.id),
+          ),
+          Expanded(child: _sortHeader('Название', _ProductsSortKey.name)),
+          SizedBox(
+            width: _colStock,
+            child: _sortHeader('Остатки', _ProductsSortKey.stock),
+          ),
+          SizedBox(
+            width: _colPurchase,
+            child: _sortHeader('Цена закупа', _ProductsSortKey.purchasePrice),
+          ),
+          SizedBox(
+            width: _colPrice,
+            child: _sortHeader('Цена', _ProductsSortKey.price),
+          ),
+          const SizedBox(width: _colDiscount, child: Text('Цена со скидкой')),
+          const SizedBox(width: _colCost, child: Text('Сумма закупа')),
+          const SizedBox(width: _colValue, child: Text('Сумма')),
+          const SizedBox(width: _colActive, child: Text('Активен')),
+          const SizedBox(width: _colActions, child: Text('Действия')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProductRow(Product p, List<Product> sortedProducts) {
+    final stockStr = p.unit == 'pcs'
+        ? p.stock.toStringAsFixed(0)
+        : _formatStock(p.stock);
+    final purchaseCost = p.purchasePrice * p.stock;
+    final stockValue = p.stock * p.effectivePrice;
+    final isSelected = _selectedProduct?.id == p.id;
+    final isChecked = _selectedProductIds.contains(p.id);
+    return Material(
+      color: isSelected
+          ? Theme.of(
+              context,
+            ).colorScheme.primaryContainer.withValues(alpha: 0.3)
+          : null,
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            if (_selectedProductIds.contains(p.id)) {
+              _selectedProductIds.remove(p.id);
+              _selectedProduct = null;
+            } else {
+              _selectedProductIds.clear();
+              _selectedProductIds.add(p.id);
+              _selectedProduct = p;
+            }
+          });
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            children: [
+              SizedBox(
+                width: _colCheck,
+                child: Center(
+                  child: Checkbox(
+                    value: isChecked,
+                    onChanged: (value) {
+                      setState(() {
+                        if (value == true) {
+                          _selectedProductIds.add(p.id);
+                          _selectedProduct = sortedProducts.length == 1
+                              ? p
+                              : null;
+                          if (_selectedProductIds.length == 1)
+                            _selectedProduct = p;
+                        } else {
+                          _selectedProductIds.remove(p.id);
+                          _selectedProduct = null;
+                        }
+                      });
+                    },
+                  ),
+                ),
+              ),
+              SizedBox(width: _colId, child: Text('${p.id}')),
+              Expanded(child: Text(p.name, overflow: TextOverflow.ellipsis)),
+              SizedBox(
+                width: _colStock,
+                child: p.stock <= p.stockThreshold
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: AppColors.danger.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: Text(
+                          stockStr,
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      )
+                    : Text(stockStr),
+              ),
+              SizedBox(
+                width: _colPurchase,
+                child: Text(p.purchasePrice.toStringAsFixed(2)),
+              ),
+              SizedBox(
+                width: _colPrice,
+                child: Text(p.price.toStringAsFixed(2)),
+              ),
+              SizedBox(
+                width: _colDiscount,
+                child: Text(
+                  p.discountPrice != null
+                      ? p.discountPrice!.toStringAsFixed(2)
+                      : '-',
+                ),
+              ),
+              SizedBox(
+                width: _colCost,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Text(
+                    purchaseCost.toStringAsFixed(2),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: _colValue,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF22c55e).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFF22c55e).withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Text(
+                    stockValue.toStringAsFixed(2),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF16a34a),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: _colActive,
+                child: _togglingActiveProductId == p.id
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Switch(
+                        value: p.isActive,
+                        onChanged: (_) => _toggleProductActive(p),
+                      ),
+              ),
+              SizedBox(
+                width: _colActions,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () async {
+                        final result = await context.push<bool>(
+                          '/products/${p.id}/edit',
+                        );
+                        if (result == true && mounted) _load(silent: true);
+                      },
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.delete, color: AppColors.danger),
+                      onPressed: () => _deleteProduct(p),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -190,16 +438,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Future<void> _toggleProductActive(Product p) async {
     setState(() => _togglingActiveProductId = p.id);
     try {
-      await widget.apiService.updateProduct(p.id, {
-        'is_active': !p.isActive,
-      });
+      await widget.apiService.updateProduct(p.id, {'is_active': !p.isActive});
       if (!mounted) return;
       _load(silent: true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
       }
     } finally {
       if (mounted) setState(() => _togglingActiveProductId = null);
@@ -238,8 +484,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   static const int _allCategoriesId = -1;
 
+  static const double _colCheck = 48, _colId = 52, _colStock = 88;
+  static const double _colPurchase = 110, _colPrice = 72, _colDiscount = 80;
+  static const double _colCost = 92,
+      _colValue = 100,
+      _colActive = 64,
+      _colActions = 100;
+
   String get _categoryFilterName {
-    if (_selectedCategoryId == null || _selectedCategoryId == _allCategoriesId) {
+    if (_selectedCategoryId == null ||
+        _selectedCategoryId == _allCategoriesId) {
       return 'Все';
     }
     for (final c in _categories) {
@@ -256,8 +510,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
     _load();
   }
 
-  Future<void> _exportLowStockPdf() async {
-    final lowStock = _products.where((p) => p.stock <= p.stockThreshold).toList();
+  /// Печать остатков (заканчивающихся товаров) — открывает системное окно печати.
+  Future<void> _printLowStock() async {
+    final lowStock = _products
+        .where((p) => p.stock <= p.stockThreshold)
+        .toList();
     if (lowStock.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -268,25 +525,58 @@ class _ProductsScreenState extends State<ProductsScreen> {
     try {
       final bytes = await LabelPdfService.buildLowStockReportPdf(lowStock);
       if (!mounted) return;
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Сохранить PDF',
-        fileName: 'zakanchivayushchiesya-tovary.pdf',
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'Остатки_заканчивающихся',
+        format: PdfPageFormat.a4,
       );
-      if (path != null) {
-        final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
-        await File(savePath).writeAsBytes(bytes);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Сохранено: $savePath')),
-        );
-      }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка печати: $e')));
+    }
+  }
+
+  Future<void> _printProductsTable(
+    List<Product> list,
+    String variantName,
+  ) async {
+    if (list.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Нет товаров для печати')));
+      return;
+    }
+    try {
+      Uint8List bytes;
+      switch (variantName) {
+        case 'name_barcode_stock':
+          bytes = await LabelPdfService.buildProductsPrintNameBarcodeStock(
+            list,
+          );
+          break;
+        case 'name_price':
+          bytes = await LabelPdfService.buildProductsPrintNamePrice(list);
+          break;
+        case 'full':
+          bytes = await LabelPdfService.buildProductsPrintFull(list);
+          break;
+        default:
+          return;
+      }
+      if (!mounted) return;
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'Товары_$variantName',
+        format: PdfPageFormat.a4,
       );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка печати: $e')));
     }
   }
 
@@ -305,8 +595,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 newName.contains(query) ||
                 barcode.contains(query);
           }).toList();
-    final List<Product> sortedProducts =
-        List<Product>.from(visibleProducts)..sort(_compareProducts);
+    final List<Product> sortedProducts = List<Product>.from(visibleProducts)
+      ..sort(_compareProducts);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -392,10 +682,54 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 ),
                 const SizedBox(width: 8),
               ],
-              OutlinedButton.icon(
-                onPressed: _exportLowStockPdf,
-                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                label: const Text('PDF заканчивающихся'),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.print, size: 20),
+                tooltip: 'Печать',
+                onSelected: (value) {
+                  final list = sortedProducts;
+                  if (value == 'low_stock') {
+                    _printLowStock();
+                  } else {
+                    _printProductsTable(list, value);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'name_barcode_stock',
+                    child: ListTile(
+                      leading: Icon(Icons.print),
+                      title: Text('Название / Штрихкод / остаток'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'name_price',
+                    child: ListTile(
+                      leading: Icon(Icons.print),
+                      title: Text('Название / цена'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'full',
+                    child: ListTile(
+                      leading: Icon(Icons.print),
+                      title: Text(
+                        'Название / остаток / цена прихода / цена / суммы',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: 'low_stock',
+                    child: ListTile(
+                      leading: Icon(Icons.inventory),
+                      title: Text('Печать остатков'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ],
               ),
               const Spacer(),
               FilledButton.icon(
@@ -460,316 +794,26 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           onRefresh: () => _load(silent: true),
                           child: LayoutBuilder(
                             builder: (context, constraints) {
-                              return SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: SingleChildScrollView(
-                                  child: ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      minWidth: constraints.maxWidth,
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(16),
-                                      child: DataTable(
-                                        showCheckboxColumn: false,
-                                        headingRowColor:
-                                            WidgetStateProperty.all(
-                                              AppColors.primaryLight.withValues(
-                                                alpha: 0.5,
-                                              ),
-                                            ),
-                                        columnSpacing: 16,
-                                        horizontalMargin: 8,
-                                        columns: [
-                                          DataColumn(
-                                            label: Checkbox(
-                                              value: sortedProducts.isNotEmpty &&
-                                                  sortedProducts.every((p) =>
-                                                      _selectedProductIds
-                                                          .contains(p.id)),
-                                              onChanged: (value) {
-                                                setState(() {
-                                                  if (value == true) {
-                                                    _selectedProductIds
-                                                      ..clear()
-                                                      ..addAll(sortedProducts
-                                                          .map((p) => p.id));
-                                                    _selectedProduct = null;
-                                                  } else {
-                                                    _selectedProductIds
-                                                        .removeWhere((id) =>
-                                                            sortedProducts.any(
-                                                                (p) =>
-                                                                    p.id ==
-                                                                    id));
-                                                    if (_selectedProductIds
-                                                        .isEmpty) {
-                                                      _selectedProduct = null;
-                                                    } else if (_selectedProductIds
-                                                            .length ==
-                                                        1) {
-                                                      final id =
-                                                          _selectedProductIds
-                                                              .first;
-                                                      _selectedProduct =
-                                                          _products.firstWhere(
-                                                        (prod) => prod.id == id,
-                                                      );
-                                                    } else {
-                                                      _selectedProduct = null;
-                                                    }
-                                                  }
-                                                });
-                                              },
-                                            ),
-                                          ),
-                                          DataColumn(
-                                            label: _sortHeader('ID', _ProductsSortKey.id),
-                                          ),
-                                          DataColumn(
-                                            label: _sortHeader('Название', _ProductsSortKey.name),
-                                          ),
-                                          DataColumn(
-                                            label: _sortHeader('Остатки', _ProductsSortKey.stock),
-                                          ),
-                                          DataColumn(
-                                            label: _sortHeader('Цена закупа', _ProductsSortKey.purchasePrice),
-                                          ),
-                                          DataColumn(
-                                            label: _sortHeader('Цена', _ProductsSortKey.price),
-                                          ),
-                                          const DataColumn(
-                                            label: Text('Цена со скидкой'),
-                                          ),
-                                          const DataColumn(
-                                            label: Text('Сумма закупа'),
-                                          ),
-                                          const DataColumn(
-                                            label: Text('Сумма'),
-                                          ),
-                                          const DataColumn(
-                                            label: Text('Активен'),
-                                          ),
-                                          const DataColumn(
-                                            label: Text('Действия'),
-                                          ),
-                                        ],
-                                        rows: sortedProducts.map((p) {
-                                          final purchaseCost =
-                                              p.purchasePrice * p.stock;
-                                          final stockValue = p.stock * p.price;
-                                          // Штучные — целое число, граммовые — без округления (фактическое значение)
-                                          final stockStr = p.unit == 'pcs'
-                                              ? p.stock.toStringAsFixed(0)
-                                              : _formatStock(p.stock);
-                                          final isSelected =
-                                              _selectedProduct?.id == p.id;
-                                          final isChecked = _selectedProductIds
-                                              .contains(p.id);
-                                          return DataRow(
-                                            selected: isSelected,
-                                            cells: [
-                                              DataCell(
-                                                Checkbox(
-                                                  value: isChecked,
-                                                  onChanged: (value) {
-                                                    setState(() {
-                                                      if (value == true) {
-                                                        _selectedProductIds.add(
-                                                          p.id,
-                                                        );
-                                                        if (_selectedProductIds
-                                                                .length ==
-                                                            1) {
-                                                          _selectedProduct = p;
-                                                        } else {
-                                                          _selectedProduct =
-                                                              null;
-                                                        }
-                                                      } else {
-                                                        _selectedProductIds
-                                                            .remove(p.id);
-                                                        if (_selectedProductIds
-                                                            .isEmpty) {
-                                                          _selectedProduct =
-                                                              null;
-                                                        } else if (_selectedProductIds
-                                                                .length ==
-                                                            1) {
-                                                          final id =
-                                                              _selectedProductIds
-                                                                  .first;
-                                                          _selectedProduct =
-                                                              _products
-                                                                  .firstWhere(
-                                                                    (prod) =>
-                                                                        prod.id ==
-                                                                        id,
-                                                                  );
-                                                        } else {
-                                                          _selectedProduct =
-                                                              null;
-                                                        }
-                                                      }
-                                                    });
-                                                  },
-                                                ),
-                                              ),
-                                              DataCell(Text('${p.id}')),
-                                              DataCell(Text(p.name)),
-                                              DataCell(
-                                                p.stock <= p.stockThreshold
-                                                    ? Container(
-                                                        padding: const EdgeInsets.symmetric(
-                                                          horizontal: 10,
-                                                          vertical: 4,
-                                                        ),
-                                                        decoration: BoxDecoration(
-                                                          color: AppColors.danger.withValues(alpha: 0.15),
-                                                          borderRadius: BorderRadius.circular(8),
-                                                          border: Border.all(
-                                                            color: AppColors.danger.withValues(alpha: 0.5),
-                                                          ),
-                                                        ),
-                                                        child: Text(
-                                                          stockStr,
-                                                          style: const TextStyle(
-                                                            color: AppColors.danger,
-                                                            fontWeight: FontWeight.w600,
-                                                          ),
-                                                        ),
-                                                      )
-                                                    : Text(stockStr),
-                                              ),
-                                              DataCell(
-                                                Text(
-                                                  p.purchasePrice
-                                                      .toStringAsFixed(2),
-                                                ),
-                                              ),
-                                              DataCell(
-                                                Text(
-                                                  p.price.toStringAsFixed(2),
-                                                ),
-                                              ),
-                                              DataCell(
-                                                Text(
-                                                  p.discountPrice != null
-                                                      ? p.discountPrice!
-                                                            .toStringAsFixed(2)
-                                                      : '-',
-                                                ),
-                                              ),
-                                              DataCell(
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 4,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: AppColors.primary.withValues(alpha: 0.15),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    border: Border.all(
-                                                      color: AppColors.primary.withValues(alpha: 0.5),
-                                                    ),
-                                                  ),
-                                                  child: Text(
-                                                    purchaseCost.toStringAsFixed(2),
-                                                    style: const TextStyle(
-                                                      fontWeight: FontWeight.w600,
-                                                      color: AppColors.primary,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                              DataCell(
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 4,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFF22c55e).withValues(alpha: 0.15),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    border: Border.all(
-                                                      color: const Color(0xFF22c55e).withValues(alpha: 0.5),
-                                                    ),
-                                                  ),
-                                                  child: Text(
-                                                    stockValue.toStringAsFixed(2),
-                                                    style: const TextStyle(
-                                                      fontWeight: FontWeight.w600,
-                                                      color: Color(0xFF16a34a),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                              DataCell(
-                                                _togglingActiveProductId == p.id
-                                                    ? const SizedBox(
-                                                        width: 24,
-                                                        height: 24,
-                                                        child: CircularProgressIndicator(strokeWidth: 2),
-                                                      )
-                                                    : Switch(
-                                                        value: p.isActive,
-                                                        onChanged: (_) =>
-                                                            _toggleProductActive(p),
-                                                      ),
-                                              ),
-                                              DataCell(
-                                                Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    IconButton(
-                                                      icon: const Icon(
-                                                        Icons.edit,
-                                                      ),
-                                                      onPressed: () async {
-                                                        final result =
-                                                            await context.push<
-                                                              bool
-                                                            >(
-                                                              '/products/${p.id}/edit',
-                                                            );
-                                                        if (result == true &&
-                                                            mounted) {
-                                                          _load(silent: true);
-                                                        }
-                                                      },
-                                                    ),
-                                                    IconButton(
-                                                      icon: Icon(
-                                                        Icons.delete,
-                                                        color: AppColors.danger,
-                                                      ),
-                                                      onPressed: () =>
-                                                          _deleteProduct(p),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                            onSelectChanged: (_) {
-                                              setState(() {
-                                                if (_selectedProductIds
-                                                    .contains(p.id)) {
-                                                  _selectedProductIds.remove(
-                                                    p.id,
-                                                  );
-                                                  _selectedProduct = null;
-                                                } else {
-                                                  _selectedProductIds.clear();
-                                                  _selectedProductIds.add(p.id);
-                                                  _selectedProduct = p;
-                                                }
-                                              });
-                                            },
+                              return SizedBox(
+                                width: constraints.maxWidth,
+                                height: constraints.maxHeight,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _buildTableHeader(sortedProducts),
+                                    Expanded(
+                                      child: ListView.builder(
+                                        itemCount: sortedProducts.length,
+                                        itemBuilder: (context, index) {
+                                          return _buildProductRow(
+                                            sortedProducts[index],
+                                            sortedProducts,
                                           );
-                                        }).toList(),
+                                        },
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ),
                               );
                             },

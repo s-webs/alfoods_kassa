@@ -611,4 +611,226 @@ class LabelPdfService {
 
     return pdf.save();
   }
+
+  /// Печать: Название / Штрихкод / остаток. Для системного диалога печати.
+  static Future<Uint8List> buildProductsPrintNameBarcodeStock(
+    List<Product> products,
+  ) async {
+    final theme = await _loadCyrillicTheme();
+    final pdf = pw.Document(theme: theme);
+    const rowsPerPage = 30;
+    for (var pageStart = 0; pageStart < products.length; pageStart += rowsPerPage) {
+      final pageProducts = products.skip(pageStart).take(rowsPerPage).toList();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (pw.Context context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Товары: Название / Штрихкод / Остаток',
+                style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Table(
+                border: pw.TableBorder.all(width: 0.5),
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(3),
+                  1: const pw.FlexColumnWidth(1.5),
+                  2: const pw.FlexColumnWidth(0.8),
+                },
+                children: [
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: PdfColors.grey300),
+                    children: [
+                      _cell('Название', bold: true),
+                      _cell('Штрихкод', bold: true),
+                      _cell('Остаток', bold: true),
+                    ],
+                  ),
+                  ...pageProducts.map(
+                    (p) => pw.TableRow(
+                      children: [
+                        _cell(p.name),
+                        _cell(p.barcode ?? '-'),
+                        _cell(_formatStock(p.stock, p.unit)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (products.isEmpty) {
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (pw.Context context) => pw.Center(
+            child: pw.Text('Нет товаров', style: pw.TextStyle(fontSize: 12)),
+          ),
+        ),
+      );
+    }
+    return pdf.save();
+  }
+
+  /// Печать: Название / цена. Для системного диалога печати.
+  static Future<Uint8List> buildProductsPrintNamePrice(
+    List<Product> products,
+  ) async {
+    final theme = await _loadCyrillicTheme();
+    final pdf = pw.Document(theme: theme);
+    const rowsPerPage = 35;
+    for (var pageStart = 0; pageStart < products.length; pageStart += rowsPerPage) {
+      final pageProducts = products.skip(pageStart).take(rowsPerPage).toList();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (pw.Context context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Товары: Название / Цена',
+                style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Table(
+                border: pw.TableBorder.all(width: 0.5),
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(4),
+                  1: const pw.FlexColumnWidth(1),
+                },
+                children: [
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: PdfColors.grey300),
+                    children: [
+                      _cell('Название', bold: true),
+                      _cell('Цена', bold: true),
+                    ],
+                  ),
+                  ...pageProducts.map(
+                    (p) => pw.TableRow(
+                      children: [
+                        _cell(p.name),
+                        _cell(p.effectivePrice.toStringAsFixed(2)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (products.isEmpty) {
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (pw.Context context) => pw.Center(
+            child: pw.Text('Нет товаров', style: pw.TextStyle(fontSize: 12)),
+          ),
+        ),
+      );
+    }
+    return pdf.save();
+  }
+
+  /// Печать: Название / остаток / цена прихода / цена / остаток*приход / остаток*цена.
+  static Future<Uint8List> buildProductsPrintFull(List<Product> products) async {
+    final theme = await _loadCyrillicTheme();
+    final pdf = pw.Document(theme: theme);
+    const rowsPerPage = 22;
+    for (var pageStart = 0; pageStart < products.length; pageStart += rowsPerPage) {
+      final pageProducts = products.skip(pageStart).take(rowsPerPage).toList();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(16),
+          build: (pw.Context context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Товары: остатки и суммы',
+                style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Table(
+                border: pw.TableBorder.all(width: 0.5),
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(2.5),
+                  1: const pw.FlexColumnWidth(0.6),
+                  2: const pw.FlexColumnWidth(0.8),
+                  3: const pw.FlexColumnWidth(0.8),
+                  4: const pw.FlexColumnWidth(1),
+                  5: const pw.FlexColumnWidth(1),
+                },
+                children: [
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: PdfColors.grey300),
+                    children: [
+                      _cell('Название', bold: true),
+                      _cell('Остаток', bold: true),
+                      _cell('Цена прихода', bold: true),
+                      _cell('Цена', bold: true),
+                      _cell('Остаток×приход', bold: true),
+                      _cell('Остаток×цена', bold: true),
+                    ],
+                  ),
+                  ...pageProducts.map(
+                    (p) {
+                      final costSum = p.stock * p.purchasePrice;
+                      final priceSum = p.stock * p.effectivePrice;
+                      return pw.TableRow(
+                        children: [
+                          _cell(p.name),
+                          _cell(_formatStock(p.stock, p.unit)),
+                          _cell(p.purchasePrice.toStringAsFixed(2)),
+                          _cell(p.effectivePrice.toStringAsFixed(2)),
+                          _cell(costSum.toStringAsFixed(2)),
+                          _cell(priceSum.toStringAsFixed(2)),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (products.isEmpty) {
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (pw.Context context) => pw.Center(
+            child: pw.Text('Нет товаров', style: pw.TextStyle(fontSize: 12)),
+          ),
+        ),
+      );
+    }
+    return pdf.save();
+  }
+
+  static pw.Widget _cell(String text, {bool bold = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(4),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: 8,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+        ),
+      ),
+    );
+  }
 }

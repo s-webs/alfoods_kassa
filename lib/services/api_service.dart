@@ -428,6 +428,25 @@ class ApiService {
     return list.map((e) => e as Map<String, dynamic>).toList();
   }
 
+  /// Общая оплата долгов контрагента: сумма распределяется по неоплаченным продажам,
+  /// начиная с самых старых.
+  Future<Map<String, dynamic>> payDebtBulk(
+    int counterpartyId, {
+    required double amount,
+    required DateTime paymentDate,
+    String? notes,
+  }) async {
+    final response = await _apiClient.dio.post(
+      'api/counterparties/$counterpartyId/pay-debt-bulk',
+      data: {
+        'amount': amount,
+        'payment_date': paymentDate.toIso8601String(),
+        'notes': notes,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   // Tasks
   Future<List<Task>> getTasks({DateTime? date, String? status}) async {
     final queryParams = <String, dynamic>{};

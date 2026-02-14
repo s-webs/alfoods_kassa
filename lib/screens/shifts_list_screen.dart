@@ -36,8 +36,9 @@ class _ShiftsListScreenState extends State<ShiftsListScreen> {
     try {
       final list = await widget.apiService.getShifts();
       if (!mounted) return;
+      final sorted = List<Shift>.from(list)..sort((a, b) => b.id.compareTo(a.id));
       setState(() {
-        _shifts = list;
+        _shifts = sorted;
         _isLoading = false;
       });
     } catch (e) {

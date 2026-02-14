@@ -8,6 +8,7 @@ import '../core/storage.dart';
 import '../core/theme.dart';
 import '../services/api_service.dart';
 import '../services/debtors_pdf_service.dart';
+import '../widgets/pay_debt_bulk_dialog.dart';
 
 class DebtorsScreen extends StatefulWidget {
   const DebtorsScreen({
@@ -28,6 +29,7 @@ class _DebtorsScreenState extends State<DebtorsScreen> {
   bool _isLoading = true;
   String? _error;
   bool _isGeneratingPdf = false;
+  int? _payingDebtCounterpartyId;
 
   @override
   void initState() {
@@ -255,6 +257,61 @@ class _DebtorsScreenState extends State<DebtorsScreen> {
                                           ),
                                         ),
                                       ],
+                                      const SizedBox(height: 16),
+                                      FilledButton.icon(
+                                        onPressed: (debtor['unpaid_sales'] as List).isEmpty
+                                            ? null
+                                            : () async {
+                                                final totalDebt = debtor['total_debt'] as num;
+                                                final result = await showDialog<PayDebtBulkResult>(
+                                                  context: context,
+                                                  builder: (ctx) => PayDebtBulkDialog(
+                                                    totalDebt: totalDebt.toDouble(),
+                                                    counterpartyName: debtor['name'] as String,
+                                                  ),
+                                                );
+                                                if (result == null || !mounted) return;
+                                                setState(() => _payingDebtCounterpartyId = debtor['id'] as int);
+                                                try {
+                                                  await widget.apiService.payDebtBulk(
+                                                    debtor['id'] as int,
+                                                    amount: result.amount,
+                                                    paymentDate: result.paymentDate,
+                                                    notes: result.notes,
+                                                  );
+                                                  if (!mounted) return;
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text(
+                                                        'Оплачено ${result.amount.toStringAsFixed(2)} ₸. Долги обновлены.',
+                                                      ),
+                                                    ),
+                                                  );
+                                                  _load();
+                                                } catch (e) {
+                                                  if (!mounted) return;
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text('Ошибка: $e'),
+                                                      backgroundColor: AppColors.danger,
+                                                    ),
+                                                  );
+                                                } finally {
+                                                  if (mounted) setState(() => _payingDebtCounterpartyId = null);
+                                                }
+                                              },
+                                        icon: _payingDebtCounterpartyId == debtor['id']
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(strokeWidth: 2),
+                                              )
+                                            : const Icon(Icons.payment, size: 20),
+                                        label: const Text('Общая оплата долгов'),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: AppColors.primary,
+                                        ),
+                                      ),
                                       const SizedBox(height: 16),
                                       const Divider(),
                                       const SizedBox(height: 8),
