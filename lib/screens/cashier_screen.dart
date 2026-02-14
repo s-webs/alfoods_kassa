@@ -320,19 +320,15 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   Future<void> _showAddProductDialog() async {
-    final result = await showDialog<Object>(
+    await showDialog<void>(
       context: context,
-      builder: (ctx) => AddProductDialog(apiService: widget.apiService),
+      builder: (ctx) => AddProductDialog(
+        apiService: widget.apiService,
+        onAddProduct: (p) => _addProduct(p),
+        onAddSet: (s) => _addSet(s),
+      ),
     );
-    if (result != null && mounted) {
-      if (result is Product) {
-        _addProduct(result);
-      } else if (result is ProductSet) {
-        _addSet(result);
-      }
-    }
     if (mounted) {
-      // Восстанавливаем фокус после закрытия диалога
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _barcodeFocusNode.canRequestFocus) {
           _barcodeFocusNode.requestFocus();
@@ -1466,7 +1462,7 @@ class _CashierScreenState extends State<CashierScreen> {
                             shape: BoxShape.circle,
                           ),
                           child: Text(
-                            '${index + 1}',
+                            '${item.orderIndex}',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,

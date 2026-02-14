@@ -4,16 +4,19 @@ import '../models/cart_item.dart';
 
 /// Состояние кассы (корзина и id последней сохранённой продажи).
 /// Живёт в Shell и не сбрасывается при переходе на другие экраны.
+/// Новые товары вставляются в начало списка (сверху). orderIndex — постоянный номер (1, 2, 3...).
 class CashierState extends ChangeNotifier {
   final List<CartItem> _cart = [];
   int? _lastSavedSaleId;
+  int _nextOrderIndex = 1;
 
   List<CartItem> get cart => _cart;
   int? get lastSavedSaleId => _lastSavedSaleId;
 
   void addItem(CartItem item) {
     _lastSavedSaleId = null;
-    _cart.insert(0, item);
+    final indexed = item.copyWith(orderIndex: _nextOrderIndex++);
+    _cart.insert(0, indexed);
     notifyListeners();
   }
 
@@ -28,7 +31,8 @@ class CashierState extends ChangeNotifier {
     if (i >= 0) {
       _cart[i].quantity += step;
     } else {
-      _cart.insert(0, newItem);
+      final indexed = newItem.copyWith(orderIndex: _nextOrderIndex++);
+      _cart.insert(0, indexed);
     }
     notifyListeners();
   }
@@ -74,6 +78,7 @@ class CashierState extends ChangeNotifier {
   void clearCart() {
     _cart.clear();
     _lastSavedSaleId = null;
+    _nextOrderIndex = 1;
     notifyListeners();
   }
 

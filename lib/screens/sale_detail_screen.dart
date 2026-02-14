@@ -9,6 +9,7 @@ import '../core/theme.dart';
 import '../models/cart_item.dart';
 import '../models/cashier.dart';
 import '../models/product.dart';
+import '../models/product_set.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
@@ -273,17 +274,11 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     setState(() => _editingPriceIndex = null);
   }
 
-  /// Добавить позицию из каталога товаров (модалка со списком, как в кассе).
-  Future<void> _addItemFromCatalog() async {
-    final product = await showDialog<Product>(
-      context: context,
-      builder: (ctx) => AddProductDialog(apiService: widget.apiService),
-    );
-    if (product == null || !mounted) return;
+  void _addProductToSale(Product product) {
     setState(() {
       final step = product.unit == 'pcs' ? 1.0 : 0.1;
       final existingIndex =
-          _items.indexWhere((e) => e.productId == product.id);
+          _items.indexWhere((e) => e.productId == product.id && e.setId == null);
       if (existingIndex >= 0) {
         _items[existingIndex].quantity += step;
       } else {
@@ -298,6 +293,40 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         );
       }
     });
+  }
+
+  void _addSetToSale(ProductSet productSet) {
+    setState(() {
+      const step = 1.0;
+      final existingIndex =
+          _items.indexWhere((e) => e.setId == productSet.id);
+      if (existingIndex >= 0) {
+        _items[existingIndex].quantity += step;
+      } else {
+        _items.add(
+          CartItem(
+            productId: 0,
+            setId: productSet.id,
+            name: productSet.name,
+            price: productSet.effectivePrice,
+            quantity: step,
+            unit: 'pcs',
+          ),
+        );
+      }
+    });
+  }
+
+  /// Добавить позицию из каталога товаров (модалка со списком, можно добавлять несколько).
+  Future<void> _addItemFromCatalog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AddProductDialog(
+        apiService: widget.apiService,
+        onAddProduct: (p) => _addProductToSale(p),
+        onAddSet: (s) => _addSetToSale(s),
+      ),
+    );
   }
 
   /// Добавить произвольный товар (снимок, которого нет в базе).

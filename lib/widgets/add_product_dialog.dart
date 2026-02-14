@@ -6,9 +6,18 @@ import '../models/product_set.dart';
 import '../services/api_service.dart';
 
 class AddProductDialog extends StatefulWidget {
-  const AddProductDialog({super.key, required this.apiService});
+  const AddProductDialog({
+    super.key,
+    required this.apiService,
+    this.onAddProduct,
+    this.onAddSet,
+  });
 
   final ApiService apiService;
+  /// При указании — товар добавляется через callback, диалог остаётся открытым.
+  final void Function(Product)? onAddProduct;
+  /// При указании — сет добавляется через callback, диалог остаётся открытым.
+  final void Function(ProductSet)? onAddSet;
 
   @override
   State<AddProductDialog> createState() => _AddProductDialogState();
@@ -101,11 +110,19 @@ class _AddProductDialogState extends State<AddProductDialog>
   }
 
   void _selectProduct(Product product) {
-    Navigator.pop(context, product);
+    if (widget.onAddProduct != null) {
+      widget.onAddProduct!(product);
+    } else {
+      Navigator.pop(context, product);
+    }
   }
 
   void _selectSet(ProductSet productSet) {
-    Navigator.pop(context, productSet);
+    if (widget.onAddSet != null) {
+      widget.onAddSet!(productSet);
+    } else {
+      Navigator.pop(context, productSet);
+    }
   }
 
   @override
