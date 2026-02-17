@@ -82,7 +82,8 @@ class _AddProductToSetDialogState extends State<AddProductToSetDialog> {
       _filteredProducts = _products
           .where((p) =>
               !widget.excludedProductIds.contains(p.id) &&
-              p.name.toLowerCase().contains(query))
+              (p.name.toLowerCase().contains(query) ||
+                  (p.barcode ?? '').toLowerCase().contains(query)))
           .toList();
     }
   }
@@ -160,7 +161,7 @@ class _AddProductToSetDialogState extends State<AddProductToSetDialog> {
                     child: TextField(
                       controller: _searchController,
                       decoration: const InputDecoration(
-                        hintText: 'Поиск по названию...',
+                        hintText: 'Поиск по названию или штрихкоду...',
                         prefixIcon: Icon(Icons.search),
                       ),
                       onChanged: _onSearchChanged,

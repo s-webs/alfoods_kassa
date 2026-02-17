@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:printing/printing.dart';
@@ -32,7 +34,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
   String _searchQuery = '';
   Set<int> _selectedProductIds = {};
   bool _isLoading = true;
-  int? _togglingActiveProductId;
   String? _error;
   _ProductsSortKey _sortKey = _ProductsSortKey.id;
   bool _sortAsc = false; // по умолчанию id по убыванию (новые сверху)
@@ -192,6 +193,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
             child: _sortHeader('ID', _ProductsSortKey.id),
           ),
           Expanded(child: _sortHeader('Название', _ProductsSortKey.name)),
+          const SizedBox(width: _colBarcode, child: Text('Штрихкод')),
           SizedBox(
             width: _colStock,
             child: _sortHeader('Остатки', _ProductsSortKey.stock),
@@ -204,10 +206,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
             width: _colPrice,
             child: _sortHeader('Цена', _ProductsSortKey.price),
           ),
-          const SizedBox(width: _colDiscount, child: Text('Цена со скидкой')),
           const SizedBox(width: _colCost, child: Text('Сумма закупа')),
           const SizedBox(width: _colValue, child: Text('Сумма')),
-          const SizedBox(width: _colActive, child: Text('Активен')),
           const SizedBox(width: _colActions, child: Text('Действия')),
         ],
       ),
@@ -271,6 +271,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
               SizedBox(width: _colId, child: Text('${p.id}')),
               Expanded(child: Text(p.name, overflow: TextOverflow.ellipsis)),
               SizedBox(
+                width: _colBarcode,
+                child: Text(
+                  p.barcode ?? '-',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(
                 width: _colStock,
                 child: p.stock <= p.stockThreshold
                     ? Container(
@@ -302,14 +309,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
               SizedBox(
                 width: _colPrice,
                 child: Text(p.price.toStringAsFixed(2)),
-              ),
-              SizedBox(
-                width: _colDiscount,
-                child: Text(
-                  p.discountPrice != null
-                      ? p.discountPrice!.toStringAsFixed(2)
-                      : '-',
-                ),
               ),
               SizedBox(
                 width: _colCost,
@@ -356,19 +355,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ),
                   ),
                 ),
-              ),
-              SizedBox(
-                width: _colActive,
-                child: _togglingActiveProductId == p.id
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Switch(
-                        value: p.isActive,
-                        onChanged: (_) => _toggleProductActive(p),
-                      ),
               ),
               SizedBox(
                 width: _colActions,
@@ -436,21 +422,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
     }
   }
 
-  Future<void> _toggleProductActive(Product p) async {
-    setState(() => _togglingActiveProductId = p.id);
-    try {
-      await widget.apiService.updateProduct(p.id, {'is_active': !p.isActive});
-      if (!mounted) return;
-      _load(silent: true);
-    } catch (e) {
-      if (mounted) {
-        showToast(context, 'Ошибка: $e');
-      }
-    } finally {
-      if (mounted) setState(() => _togglingActiveProductId = null);
-    }
-  }
-
   Future<void> _deleteProduct(Product p) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -484,10 +455,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
   static const int _allCategoriesId = -1;
 
   static const double _colCheck = 48, _colId = 52, _colStock = 88;
-  static const double _colPurchase = 110, _colPrice = 72, _colDiscount = 80;
+  static const double _colBarcode = 120;
+  static const double _colPurchase = 110, _colPrice = 72;
   static const double _colCost = 92,
       _colValue = 100,
-      _colActive = 64,
       _colActions = 100;
 
   String get _categoryFilterName {
@@ -568,6 +539,84 @@ class _ProductsScreenState extends State<ProductsScreen> {
     } catch (e) {
       if (!mounted) return;
       showToast(context, 'Ошибка печати: $e');
+    }
+  }
+
+  /// Экспорт в PDF: те же варианты, что и печать, но сохранение в файл.
+  Future<void> _exportLowStock() async {
+    final lowStock = _products
+        .where((p) => p.stock <= p.stockThreshold)
+        .toList();
+    if (lowStock.isEmpty) {
+      if (!mounted) return;
+      showToast(context, 'Нет заканчивающихся товаров');
+      return;
+    }
+    try {
+      final bytes = await LabelPdfService.buildLowStockReportPdf(lowStock);
+      if (!mounted) return;
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Сохранить PDF',
+        fileName: 'Остатки_заканчивающихся.pdf',
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+      if (!mounted) return;
+      if (path != null && path.isNotEmpty) {
+        final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
+        await File(savePath).writeAsBytes(bytes);
+        if (!mounted) return;
+        showToast(context, 'Файл сохранён: $savePath');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showToast(context, 'Ошибка экспорта: $e');
+    }
+  }
+
+  Future<void> _exportProductsTable(
+    List<Product> list,
+    String variantName,
+  ) async {
+    if (list.isEmpty) {
+      if (!mounted) return;
+      showToast(context, 'Нет товаров для экспорта');
+      return;
+    }
+    try {
+      Uint8List bytes;
+      switch (variantName) {
+        case 'name_barcode_stock':
+          bytes = await LabelPdfService.buildProductsPrintNameBarcodeStock(
+            list,
+          );
+          break;
+        case 'name_price':
+          bytes = await LabelPdfService.buildProductsPrintNamePrice(list);
+          break;
+        case 'full':
+          bytes = await LabelPdfService.buildProductsPrintFull(list);
+          break;
+        default:
+          return;
+      }
+      if (!mounted) return;
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Сохранить PDF',
+        fileName: 'Товары_$variantName.pdf',
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+      if (!mounted) return;
+      if (path != null && path.isNotEmpty) {
+        final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
+        await File(savePath).writeAsBytes(bytes);
+        if (!mounted) return;
+        showToast(context, 'Файл сохранён: $savePath');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showToast(context, 'Ошибка экспорта: $e');
     }
   }
 
@@ -705,6 +754,56 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     value: 'full',
                     child: ListTile(
                       leading: Icon(Icons.print),
+                      title: Text(
+                        'Название / остаток / цена прихода / цена / суммы',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: 'low_stock',
+                    child: ListTile(
+                      leading: Icon(Icons.inventory),
+                      title: Text('Печать остатков'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.picture_as_pdf, size: 20),
+                tooltip: 'Экспорт',
+                onSelected: (value) {
+                  final list = sortedProducts;
+                  if (value == 'low_stock') {
+                    _exportLowStock();
+                  } else {
+                    _exportProductsTable(list, value);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'name_barcode_stock',
+                    child: ListTile(
+                      leading: Icon(Icons.picture_as_pdf),
+                      title: Text('Название / Штрихкод / остаток'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'name_price',
+                    child: ListTile(
+                      leading: Icon(Icons.picture_as_pdf),
+                      title: Text('Название / цена'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'full',
+                    child: ListTile(
+                      leading: Icon(Icons.picture_as_pdf),
                       title: Text(
                         'Название / остаток / цена прихода / цена / суммы',
                       ),

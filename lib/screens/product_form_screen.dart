@@ -45,6 +45,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   final _nameController = TextEditingController();
   final _priceController = TextEditingController();
   final _discountPriceController = TextEditingController();
+  final _purchasePriceController = TextEditingController();
   final _stockController = TextEditingController();
   final _stockThresholdController = TextEditingController();
   final _barcodeController = TextEditingController();
@@ -270,6 +271,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     _nameController.dispose();
     _priceController.dispose();
     _discountPriceController.dispose();
+    _purchasePriceController.dispose();
     _stockController.dispose();
     _stockThresholdController.dispose();
     _barcodeController.dispose();
@@ -305,6 +307,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
           _nameController.text = p.name;
           _priceController.text = p.price.toString();
           _discountPriceController.text = p.discountPrice?.toString() ?? '';
+          _purchasePriceController.text = p.purchasePrice.toString();
           _stockController.text = p.stock.toString();
           _stockThresholdController.text = p.stockThreshold.toString();
           _barcodeController.text = p.barcode ?? '';
@@ -444,6 +447,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
         'category_id': _selectedCategoryId,
         'unit': _selectedUnit,
         'price': price,
+        'purchase_price': double.tryParse(_purchasePriceController.text) ?? 0,
         'barcode': _barcodeController.text.trim().isEmpty
             ? null
             : _barcodeController.text.trim(),
@@ -560,6 +564,19 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
               ? 'Редактирование'
               : 'Новый товар',
         ),
+        actions: [
+          IconButton(
+            onPressed: _isSaving ? null : _save,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save),
+            tooltip: 'Сохранить',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -659,6 +676,15 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Цена со скидкой',
                   hintText: '0.00 (необязательно)',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _purchasePriceController,
+                decoration: const InputDecoration(
+                  labelText: 'Стоимость закупа',
+                  hintText: '0.00',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
               ),
@@ -934,19 +960,8 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                   const SizedBox(height: 8),
                 ],
               ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Сохранить'),
-              ),
               if (widget.mode == ProductFormMode.edit) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 24),
                 OutlinedButton(
                   onPressed: _isSaving ? null : _delete,
                   style: OutlinedButton.styleFrom(

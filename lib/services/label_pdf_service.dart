@@ -877,13 +877,20 @@ class LabelPdfService {
   ) async {
     final theme = await _loadCyrillicTheme();
     final pdf = pw.Document(theme: theme);
-    const rowsPerPage = 22;
+    const rowsPerPage = 43;
+    final totalCost = products.isEmpty
+        ? 0.0
+        : products.fold<double>(0, (s, p) => s + p.stock * p.purchasePrice);
+    final totalSale = products.isEmpty
+        ? 0.0
+        : products.fold<double>(0, (s, p) => s + p.stock * p.effectivePrice);
     for (
       var pageStart = 0;
       pageStart < products.length;
       pageStart += rowsPerPage
     ) {
       final pageProducts = products.skip(pageStart).take(rowsPerPage).toList();
+      final isLastPage = pageStart + rowsPerPage >= products.length;
       pdf.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.a4,
@@ -937,6 +944,26 @@ class LabelPdfService {
                   }),
                 ],
               ),
+              if (isLastPage) ...[
+                pw.SizedBox(height: 16),
+                pw.Text(
+                  'Итого',
+                  style: pw.TextStyle(
+                    fontSize: 12,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 4),
+                pw.Text(
+                  'Сумма по цене закупа: ${totalCost.toStringAsFixed(2)}',
+                  style: pw.TextStyle(fontSize: 11),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'Сумма по цене продажи: ${totalSale.toStringAsFixed(2)}',
+                  style: pw.TextStyle(fontSize: 11),
+                ),
+              ],
             ],
           ),
         ),

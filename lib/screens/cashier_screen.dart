@@ -209,9 +209,7 @@ class _CashierScreenState extends State<CashierScreen> {
 
     final controller = TextEditingController(text: initial);
     double? parseQuantity() {
-      final v = double.tryParse(
-        controller.text.replaceFirst(',', '.').trim(),
-      );
+      final v = double.tryParse(controller.text.replaceFirst(',', '.').trim());
       if (v == null || v < 0) return null;
       if (isPcs) return v.roundToDouble();
       return v; // граммовые: любое число (0.15, 0.25 и т.д.)
@@ -267,8 +265,8 @@ class _CashierScreenState extends State<CashierScreen> {
     if (index < 0 || index >= state.cart.length) return;
     setState(() {
       _editingNameIndex = index;
-    _nameEditController?.dispose();
-    _nameEditController = TextEditingController(text: state.cart[index].name);
+      _nameEditController?.dispose();
+      _nameEditController = TextEditingController(text: state.cart[index].name);
     });
   }
 
@@ -474,97 +472,103 @@ class _CashierScreenState extends State<CashierScreen> {
     final quantityController = TextEditingController(text: '1');
 
     if (!mounted) return;
-    final result = await showDialog<({String name, double price, String unit, double quantity})>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return AlertDialog(
-              title: const Text('Добавить в корзину (только на эту продажу)'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Название',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: priceController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Цена, ₸',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: unit,
-                      decoration: const InputDecoration(
-                        labelText: 'Единица',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'pcs', child: Text('шт')),
-                        DropdownMenuItem(value: 'g', child: Text('г')),
+    final result =
+        await showDialog<
+          ({String name, double price, String unit, double quantity})
+        >(
+          context: context,
+          builder: (ctx) {
+            return StatefulBuilder(
+              builder: (ctx, setDialogState) {
+                return AlertDialog(
+                  title: const Text(
+                    'Добавить в корзину (только на эту продажу)',
+                  ),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: nameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Название',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: priceController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Цена, ₸',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: unit,
+                          decoration: const InputDecoration(
+                            labelText: 'Единица',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'pcs', child: Text('шт')),
+                            DropdownMenuItem(value: 'g', child: Text('г')),
+                          ],
+                          onChanged: (v) =>
+                              setDialogState(() => unit = v ?? 'pcs'),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: quantityController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Количество',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
                       ],
-                      onChanged: (v) => setDialogState(() => unit = v ?? 'pcs'),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: quantityController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Количество',
-                        border: OutlineInputBorder(),
-                      ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(null),
+                      child: const Text('Отмена'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        final name = nameController.text.trim();
+                        final price = double.tryParse(
+                          priceController.text.replaceFirst(',', '.').trim(),
+                        );
+                        final qty = double.tryParse(
+                          quantityController.text.replaceFirst(',', '.').trim(),
+                        );
+                        if (name.isNotEmpty &&
+                            price != null &&
+                            price >= 0 &&
+                            qty != null &&
+                            qty > 0) {
+                          Navigator.of(ctx).pop((
+                            name: name,
+                            price: price,
+                            unit: unit,
+                            quantity: qty,
+                          ));
+                        }
+                      },
+                      child: const Text('Добавить'),
                     ),
                   ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(null),
-                  child: const Text('Отмена'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final name = nameController.text.trim();
-                    final price = double.tryParse(
-                      priceController.text.replaceFirst(',', '.').trim(),
-                    );
-                    final qty = double.tryParse(
-                      quantityController.text.replaceFirst(',', '.').trim(),
-                    );
-                    if (name.isNotEmpty &&
-                        price != null &&
-                        price >= 0 &&
-                        qty != null &&
-                        qty > 0) {
-                      Navigator.of(ctx).pop((
-                        name: name,
-                        price: price,
-                        unit: unit,
-                        quantity: qty,
-                      ));
-                    }
-                  },
-                  child: const Text('Добавить'),
-                ),
-              ],
+                );
+              },
             );
           },
         );
-      },
-    );
 
     if (result != null && mounted) {
       CashierStateScope.of(context).addItem(
@@ -606,235 +610,257 @@ class _CashierScreenState extends State<CashierScreen> {
     final stockController = TextEditingController(text: '0');
     final stockThresholdController = TextEditingController(text: '0');
     final barcodeController = TextEditingController(text: barcode);
-    
+
     int? selectedCategoryId;
     String selectedUnit = 'pcs';
     bool isActive = true;
 
     if (!mounted) return;
-    final productData = await showDialog<({
-      String name,
-      String? newName,
-      double price,
-      double purchasePrice,
-      double? discountPrice,
-      double stock,
-      double stockThreshold,
-      String unit,
-      int? categoryId,
-      String? barcode,
-      bool isActive,
-    })>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return AlertDialog(
-              title: const Text('Добавить товар в базу'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
+    final productData =
+        await showDialog<
+          ({
+            String name,
+            String? newName,
+            double price,
+            double purchasePrice,
+            double? discountPrice,
+            double stock,
+            double stockThreshold,
+            String unit,
+            int? categoryId,
+            String? barcode,
+            bool isActive,
+          })
+        >(
+          context: context,
+          builder: (ctx) {
+            return StatefulBuilder(
+              builder: (ctx, setDialogState) {
+                return AlertDialog(
+                  title: const Text('Добавить товар в базу'),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Expanded(
-                          child: TextField(
-                            controller: nameController,
-                            decoration: const InputDecoration(
-                              labelText: 'Название',
-                              border: OutlineInputBorder(),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: nameController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Название',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const Text('Активен'),
-                        const SizedBox(width: 8),
-                        Switch(
-                          value: isActive,
-                          onChanged: (v) => setDialogState(() => isActive = v),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: newNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'New name',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int?>(
-                      value: selectedCategoryId,
-                      decoration: const InputDecoration(
-                        labelText: 'Категория',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: null,
-                          child: Text('Без категории'),
-                        ),
-                        ...categories.map(
-                          (c) => DropdownMenuItem(
-                            value: c.id,
-                            child: Text(c.name),
-                          ),
-                        ),
-                      ],
-                      onChanged: (v) => setDialogState(() => selectedCategoryId = v),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedUnit,
-                      decoration: const InputDecoration(
-                        labelText: 'Единица',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'pcs', child: Text('шт')),
-                        DropdownMenuItem(value: 'g', child: Text('г')),
-                      ],
-                      onChanged: (v) => setDialogState(() => selectedUnit = v ?? 'pcs'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: priceController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Цена, ₸',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: purchasePriceController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Закупочная цена, ₸',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: discountPriceController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Цена со скидкой, ₸',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: stockController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Остаток',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: stockThresholdController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Порог остатков',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: barcodeController,
-                            decoration: const InputDecoration(
-                              labelText: 'Штрихкод',
-                              border: OutlineInputBorder(),
+                            const SizedBox(width: 16),
+                            const Text('Активен'),
+                            const SizedBox(width: 8),
+                            Switch(
+                              value: isActive,
+                              onChanged: (v) =>
+                                  setDialogState(() => isActive = v),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: newNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'New name',
+                            border: OutlineInputBorder(),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: OutlinedButton(
-                            onPressed: () {
-                              barcodeController.text = generateBarcode();
-                            },
-                            child: const Text('Сгенерировать'),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<int?>(
+                          value: selectedCategoryId,
+                          decoration: const InputDecoration(
+                            labelText: 'Категория',
+                            border: OutlineInputBorder(),
                           ),
+                          items: [
+                            const DropdownMenuItem(
+                              value: null,
+                              child: Text('Без категории'),
+                            ),
+                            ...categories.map(
+                              (c) => DropdownMenuItem(
+                                value: c.id,
+                                child: Text(c.name),
+                              ),
+                            ),
+                          ],
+                          onChanged: (v) =>
+                              setDialogState(() => selectedCategoryId = v),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: selectedUnit,
+                          decoration: const InputDecoration(
+                            labelText: 'Единица',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'pcs', child: Text('шт')),
+                            DropdownMenuItem(value: 'g', child: Text('г')),
+                          ],
+                          onChanged: (v) =>
+                              setDialogState(() => selectedUnit = v ?? 'pcs'),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: priceController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Цена, ₸',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: purchasePriceController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Закупочная цена, ₸',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: discountPriceController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Цена со скидкой, ₸',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: stockController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Остаток',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: stockThresholdController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Порог остатков',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: barcodeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Штрихкод',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: OutlinedButton(
+                                onPressed: () {
+                                  barcodeController.text = generateBarcode();
+                                },
+                                child: const Text('Сгенерировать'),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(null),
+                      child: const Text('Отмена'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        final name = nameController.text.trim();
+                        final price = double.tryParse(
+                          priceController.text.replaceFirst(',', '.').trim(),
+                        );
+                        final purchasePrice =
+                            double.tryParse(
+                              purchasePriceController.text
+                                  .replaceFirst(',', '.')
+                                  .trim(),
+                            ) ??
+                            0;
+                        final discountPrice =
+                            discountPriceController.text.trim().isEmpty
+                            ? null
+                            : double.tryParse(
+                                discountPriceController.text
+                                    .replaceFirst(',', '.')
+                                    .trim(),
+                              );
+                        final stock =
+                            double.tryParse(
+                              stockController.text
+                                  .replaceFirst(',', '.')
+                                  .trim(),
+                            ) ??
+                            0;
+                        final stockThreshold =
+                            double.tryParse(
+                              stockThresholdController.text
+                                  .replaceFirst(',', '.')
+                                  .trim(),
+                            ) ??
+                            0;
+                        final barcodeValue = barcodeController.text.trim();
+
+                        if (name.isNotEmpty && price != null && price >= 0) {
+                          Navigator.of(ctx).pop((
+                            name: name,
+                            newName: newNameController.text.trim().isEmpty
+                                ? null
+                                : newNameController.text.trim(),
+                            price: price,
+                            purchasePrice: purchasePrice,
+                            discountPrice:
+                                discountPrice != null && discountPrice > 0
+                                ? discountPrice
+                                : null,
+                            stock: stock,
+                            stockThreshold: stockThreshold,
+                            unit: selectedUnit,
+                            categoryId: selectedCategoryId,
+                            barcode: barcodeValue.isEmpty ? null : barcodeValue,
+                            isActive: isActive,
+                          ));
+                        }
+                      },
+                      child: const Text('Создать и добавить в корзину'),
                     ),
                   ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(null),
-                  child: const Text('Отмена'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final name = nameController.text.trim();
-                    final price = double.tryParse(
-                      priceController.text.replaceFirst(',', '.').trim(),
-                    );
-                    final purchasePrice = double.tryParse(
-                      purchasePriceController.text.replaceFirst(',', '.').trim(),
-                    ) ?? 0;
-                    final discountPrice = discountPriceController.text.trim().isEmpty
-                        ? null
-                        : double.tryParse(
-                            discountPriceController.text.replaceFirst(',', '.').trim(),
-                          );
-                    final stock = double.tryParse(
-                      stockController.text.replaceFirst(',', '.').trim(),
-                    ) ?? 0;
-                    final stockThreshold = double.tryParse(
-                      stockThresholdController.text.replaceFirst(',', '.').trim(),
-                    ) ?? 0;
-                    final barcodeValue = barcodeController.text.trim();
-                    
-                    if (name.isNotEmpty && price != null && price >= 0) {
-                      Navigator.of(ctx).pop((
-                        name: name,
-                        newName: newNameController.text.trim().isEmpty
-                            ? null
-                            : newNameController.text.trim(),
-                        price: price,
-                        purchasePrice: purchasePrice,
-                        discountPrice: discountPrice != null && discountPrice > 0
-                            ? discountPrice
-                            : null,
-                        stock: stock,
-                        stockThreshold: stockThreshold,
-                        unit: selectedUnit,
-                        categoryId: selectedCategoryId,
-                        barcode: barcodeValue.isEmpty ? null : barcodeValue,
-                        isActive: isActive,
-                      ));
-                    }
-                  },
-                  child: const Text('Создать и добавить в корзину'),
-                ),
-              ],
+                );
+              },
             );
           },
         );
-      },
-    );
 
     barcodeController.dispose();
     nameController.dispose();
@@ -953,7 +979,7 @@ class _CashierScreenState extends State<CashierScreen> {
     if (creditResult == null) return; // User cancelled
 
     if (!creditResult.isOnCredit || creditResult.counterpartyId == null) {
-        showToast(context, 'Для продажи в долг необходимо выбрать контрагента');
+      showToast(context, 'Для продажи в долг необходимо выбрать контрагента');
       return;
     }
 
@@ -1009,13 +1035,21 @@ class _CashierScreenState extends State<CashierScreen> {
       state.clearCart();
       setState(() => _isResetting = false);
       if (mounted) {
-        showToast(context, hadSavedSale ? 'Продажа отменена, корзина очищена' : 'Корзина очищена');
+        showToast(
+          context,
+          hadSavedSale
+              ? 'Продажа отменена, корзина очищена'
+              : 'Корзина очищена',
+        );
         _refocusBarcodeField();
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isResetting = false);
-      showToast(context, 'Ошибка сброса: ${e.toString().replaceFirst('Exception: ', '')}');
+      showToast(
+        context,
+        'Ошибка сброса: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
       _refocusBarcodeField();
     }
   }
@@ -1081,7 +1115,10 @@ class _CashierScreenState extends State<CashierScreen> {
     if (state.lastSavedSaleId != null) return state.lastSavedSaleId;
     try {
       final items = state.cart.map((c) => c.toJson()).toList();
-      final sale = await widget.apiService.createSale(shiftId: shift.id, items: items);
+      final sale = await widget.apiService.createSale(
+        shiftId: shift.id,
+        items: items,
+      );
       if (!mounted) return null;
       state.setLastSavedSaleId(sale.id);
       return sale.id;
@@ -1134,15 +1171,21 @@ class _CashierScreenState extends State<CashierScreen> {
         dateTime: dateTime,
       );
       if (!mounted) return;
-      showToast(context, printMode == 'pdf'
-          ? 'Открыт диалог печати'
-          : printMode == 'pdf_direct'
-              ? 'PDF отправлен на печать'
-              : 'Чек отправлен на печать');
+      showToast(
+        context,
+        printMode == 'pdf'
+            ? 'Открыт диалог печати'
+            : printMode == 'pdf_direct'
+            ? 'PDF отправлен на печать'
+            : 'Чек отправлен на печать',
+      );
       _refocusBarcodeField();
     } catch (e) {
       if (!mounted) return;
-      showToast(context, 'Ошибка печати: ${e.toString().replaceFirst('Exception: ', '')}');
+      showToast(
+        context,
+        'Ошибка печати: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
       _refocusBarcodeField();
     }
   }
@@ -1185,7 +1228,10 @@ class _CashierScreenState extends State<CashierScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      showToast(context, 'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}');
+      showToast(
+        context,
+        'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
     }
     _refocusBarcodeField();
   }
@@ -1215,25 +1261,25 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
             // Невидимое поле для приёма ввода со сканера штрихкодов (эмуляция клавиатуры)
             Positioned(
-          left: 0,
-          top: 0,
-          child: SizedBox(
-            width: 1,
-            height: 1,
-            child: TextField(
-                controller: _barcodeController,
-                focusNode: _barcodeFocusNode,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
-                  isDense: true,
+              left: 0,
+              top: 0,
+              child: SizedBox(
+                width: 1,
+                height: 1,
+                child: TextField(
+                  controller: _barcodeController,
+                  focusNode: _barcodeFocusNode,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                    isDense: true,
+                  ),
+                  onSubmitted: _onBarcodeSubmitted,
                 ),
-                onSubmitted: _onBarcodeSubmitted,
               ),
             ),
-        ),
-      ],
-    );
+          ],
+        );
       },
     );
   }
@@ -1366,13 +1412,17 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
           if (!_isReturnMode) const SizedBox(width: 12),
           FilledButton.icon(
-            onPressed: !_isSelling && !_isAcceptingReturn ? _showAddProductDialog : null,
+            onPressed: !_isSelling && !_isAcceptingReturn
+                ? _showAddProductDialog
+                : null,
             icon: const Icon(Icons.add),
             label: const Text('Добавить вручную'),
           ),
           const SizedBox(width: 12),
           OutlinedButton.icon(
-            onPressed: !_isSelling && !_isAcceptingReturn ? _showBarcodeTestDialog : null,
+            onPressed: !_isSelling && !_isAcceptingReturn
+                ? _showBarcodeTestDialog
+                : null,
             icon: const Icon(Icons.qr_code_scanner, size: 20),
             label: const Text('Тест сканера'),
           ),
@@ -1490,7 +1540,8 @@ class _CashierScreenState extends State<CashierScreen> {
                                         ),
                                       ),
                                       onSubmitted: (_) => _finishEditName(),
-                                      onEditingComplete: () => _finishEditName(),
+                                      onEditingComplete: () =>
+                                          _finishEditName(),
                                     )
                                   : GestureDetector(
                                       onTap: () => _startEditName(index),
@@ -1513,13 +1564,12 @@ class _CashierScreenState extends State<CashierScreen> {
                                         autofocus: true,
                                         keyboardType:
                                             const TextInputType.numberWithOptions(
-                                          decimal: true,
-                                        ),
+                                              decimal: true,
+                                            ),
                                         decoration: const InputDecoration(
                                           isDense: true,
                                           border: OutlineInputBorder(),
-                                          contentPadding:
-                                              EdgeInsets.symmetric(
+                                          contentPadding: EdgeInsets.symmetric(
                                             horizontal: 8,
                                             vertical: 6,
                                           ),
@@ -1618,7 +1668,8 @@ class _CashierScreenState extends State<CashierScreen> {
     final showPrintPdf = cartNotEmpty && !_isReturnMode;
     final isAcceptReturnEnabled =
         _isReturnMode && cartNotEmpty && !_isAcceptingReturn;
-    final isSellEnabled = !_isReturnMode &&
+    final isSellEnabled =
+        !_isReturnMode &&
         _currentOpenShift != null &&
         cartNotEmpty &&
         !_isSelling;
@@ -1650,11 +1701,6 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
           const Spacer(),
           if (showPrintPdf) ...[
-            OutlinedButton.icon(
-              onPressed: _printReceipt,
-              icon: const Icon(Icons.print, size: 20),
-              label: const Text('Печать чека'),
-            ),
             const SizedBox(width: 12),
             OutlinedButton.icon(
               onPressed: _saveReceiptPdf,
@@ -1673,10 +1719,20 @@ class _CashierScreenState extends State<CashierScreen> {
               label: const Text('Накладная'),
             ),
             const SizedBox(width: 12),
-          ],
-          if (cartNotEmpty) ...[
             OutlinedButton.icon(
-              onPressed: !_isResetting && !_isAcceptingReturn ? _resetCart : null,
+              onPressed: isSellEnabled ? _sellOnCredit : null,
+              icon: const Icon(Icons.credit_card, size: 20),
+              label: const Text('Продать в долг'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+                side: const BorderSide(color: AppColors.danger),
+              ),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: !_isResetting && !_isAcceptingReturn
+                  ? _resetCart
+                  : null,
               icon: _isResetting
                   ? const SizedBox(
                       width: 20,
@@ -1691,7 +1747,14 @@ class _CashierScreenState extends State<CashierScreen> {
               ),
             ),
             const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: _printReceipt,
+              icon: const Icon(Icons.print, size: 20),
+              label: const Text('Печать чека'),
+            ),
+            const SizedBox(width: 12),
           ],
+          if (cartNotEmpty) ...[],
           if (_isReturnMode)
             FilledButton.icon(
               onPressed: isAcceptReturnEnabled ? _acceptReturn : null,
@@ -1705,22 +1768,10 @@ class _CashierScreenState extends State<CashierScreen> {
                       ),
                     )
                   : const Icon(Icons.keyboard_return),
-              label: Text(
-                _isAcceptingReturn ? 'Приём...' : 'Принять возврат',
-              ),
+              label: Text(_isAcceptingReturn ? 'Приём...' : 'Принять возврат'),
               style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
             )
           else ...[
-            OutlinedButton.icon(
-              onPressed: isSellEnabled ? _sellOnCredit : null,
-              icon: const Icon(Icons.credit_card, size: 20),
-              label: const Text('Продать в долг'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.danger,
-                side: const BorderSide(color: AppColors.danger),
-              ),
-            ),
-            const SizedBox(width: 12),
             FilledButton.icon(
               onPressed: isSellEnabled ? _sell : null,
               icon: _isSelling
