@@ -14,11 +14,36 @@ import '../models/shift.dart';
 import '../models/task.dart';
 import '../models/user.dart';
 
+/// Result of resolving a barcode: either a product or a set.
+class BarcodeResolveResult {
+  const BarcodeResolveResult._({this.product, this.productSet})
+      : assert(product != null || productSet != null),
+        assert(product == null || productSet == null);
+
+  final Product? product;
+  final ProductSet? productSet;
+
+  factory BarcodeResolveResult.product(Product p) =>
+      BarcodeResolveResult._(product: p);
+  factory BarcodeResolveResult.set(ProductSet s) =>
+      BarcodeResolveResult._(productSet: s);
+
+  bool get isProduct => product != null;
+  bool get isSet => productSet != null;
+}
+
 class ApiService {
   ApiService(this._storage, this._apiClient);
 
   final Storage _storage;
   final ApiClient _apiClient;
+
+  /// In-memory cache: barcode -> resolved product or set. Cleared on shift/screen change.
+  final Map<String, BarcodeResolveResult> _barcodeCache = {};
+
+  void clearBarcodeCache() {
+    _barcodeCache.clear();
+  }
 
   /// Login with user-provided baseUrl (before it's saved to storage)
   Future<LoginResult> login({
@@ -175,6 +200,38 @@ class ApiService {
   Future<Product?> getProductByBarcode(String barcode) async {
     final list = await getProducts(active: true, barcode: barcode.trim());
     return list.isEmpty ? null : list.first;
+  }
+
+  /// Resolve barcode to product or set in one request. Uses in-memory cache.
+  /// Returns null if not found (404).
+  Future<BarcodeResolveResult?> resolveBarcode(String barcode) async {
+    final key = barcode.trim();
+    if (key.isEmpty) return null;
+    final cached = _barcodeCache[key];
+    if (cached != null) return cached;
+    try {
+      final response = await _apiClient.dio.get(
+        'api/barcode/resolve',
+        queryParameters: {'barcode': key},
+      );
+      final data = response.data as Map<String, dynamic>;
+      final type = data['type'] as String?;
+      final payload = data['data'] as Map<String, dynamic>?;
+      if (payload == null) return null;
+      BarcodeResolveResult result;
+      if (type == 'product') {
+        result = BarcodeResolveResult.product(Product.fromJson(payload));
+      } else if (type == 'set') {
+        result = BarcodeResolveResult.set(ProductSet.fromJson(payload));
+      } else {
+        return null;
+      }
+      _barcodeCache[key] = result;
+      return result;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
   }
 
   Future<List<ProductSet>> getSets({

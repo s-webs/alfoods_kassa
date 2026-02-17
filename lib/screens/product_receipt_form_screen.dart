@@ -5,7 +5,6 @@ import '../core/theme.dart';
 import '../models/cart_item.dart';
 import '../models/counterparty.dart';
 import '../models/product.dart';
-import '../models/product_set.dart';
 import '../services/api_service.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
@@ -83,19 +82,19 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
     if (_isBarcodeLoading || !mounted) return;
     setState(() => _isBarcodeLoading = true);
     try {
-      final product = await widget.apiService.getProductByBarcode(barcode);
+      final result = await widget.apiService.resolveBarcode(barcode);
       if (!mounted) return;
-      if (product != null) {
-        _addProduct(product);
-        showToast(context, 'Добавлено: ${product.name}');
-      } else {
-        final productSet = await widget.apiService.getSetByBarcode(barcode);
-        if (!mounted) return;
-        if (productSet != null) {
+      if (result != null) {
+        if (result.isProduct && result.product != null) {
+          _addProduct(result.product!);
+          showToast(context, 'Добавлено: ${result.product!.name}');
+        } else if (result.isSet && result.productSet != null) {
           showToast(context, 'Сеты не поддерживаются в поступлениях');
         } else {
           showToast(context, 'Товар с штрихкодом "$barcode" не найден');
         }
+      } else {
+        showToast(context, 'Товар с штрихкодом "$barcode" не найден');
       }
     } catch (_) {
       if (mounted) {
@@ -506,7 +505,6 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
             child: TextField(
               controller: _barcodeController,
               focusNode: _barcodeFocusNode,
-              enabled: !_isBarcodeLoading,
               decoration: const InputDecoration(
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.zero,

@@ -102,6 +102,7 @@ class _CashierScreenState extends State<CashierScreen> {
     });
     try {
       await widget.apiService.createShift();
+      widget.apiService.clearBarcodeCache();
       await _loadShifts();
     } catch (e) {
       if (!mounted) return;
@@ -142,6 +143,7 @@ class _CashierScreenState extends State<CashierScreen> {
     });
     try {
       await widget.apiService.closeShift(shift.id);
+      widget.apiService.clearBarcodeCache();
       await _loadShifts();
     } catch (e) {
       if (!mounted) return;
@@ -388,20 +390,20 @@ class _CashierScreenState extends State<CashierScreen> {
     if (_isBarcodeLoading || !mounted) return;
     setState(() => _isBarcodeLoading = true);
     try {
-      final product = await widget.apiService.getProductByBarcode(barcode);
+      final result = await widget.apiService.resolveBarcode(barcode);
       if (!mounted) return;
-      if (product != null) {
-        _addProduct(product);
-        showToast(context, 'Добавлено: ${product.name}');
-      } else {
-        final productSet = await widget.apiService.getSetByBarcode(barcode);
-        if (!mounted) return;
-        if (productSet != null) {
-          _addSet(productSet);
-          showToast(context, 'Добавлено: ${productSet.name}');
+      if (result != null) {
+        if (result.isProduct && result.product != null) {
+          _addProduct(result.product!);
+          showToast(context, 'Добавлено: ${result.product!.name}');
+        } else if (result.isSet && result.productSet != null) {
+          _addSet(result.productSet!);
+          showToast(context, 'Добавлено: ${result.productSet!.name}');
         } else {
           await _showBarcodeNotFoundDialog(barcode);
         }
+      } else {
+        await _showBarcodeNotFoundDialog(barcode);
       }
     } catch (_) {
       if (mounted) {
@@ -409,7 +411,6 @@ class _CashierScreenState extends State<CashierScreen> {
       }
     } finally {
       if (mounted) setState(() => _isBarcodeLoading = false);
-      // Восстанавливаем фокус после завершения обработки
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _barcodeFocusNode.canRequestFocus) {
@@ -1222,7 +1223,6 @@ class _CashierScreenState extends State<CashierScreen> {
             child: TextField(
                 controller: _barcodeController,
                 focusNode: _barcodeFocusNode,
-                enabled: !_isBarcodeLoading,
                 decoration: const InputDecoration(
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.zero,
