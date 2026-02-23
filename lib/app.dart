@@ -11,6 +11,8 @@ import 'screens/counterparties_screen.dart';
 import 'screens/counterparty_form_screen.dart';
 import 'screens/debtors_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/order_detail_screen.dart';
+import 'screens/orders_screen.dart';
 import 'screens/print_labels_screen.dart';
 import 'screens/product_form_screen.dart';
 import 'screens/product_receipt_detail_screen.dart';
@@ -26,16 +28,22 @@ import 'screens/shift_sales_screen.dart';
 import 'screens/shifts_list_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'services/api_service.dart';
+import 'services/notification_service.dart';
+import 'services/realtime_service.dart';
 
 class App extends StatelessWidget {
   const App({
     super.key,
     required this.storage,
     required this.apiService,
+    required this.realtimeService,
+    required this.notificationService,
   });
 
   final Storage storage;
   final ApiService apiService;
+  final RealtimeService realtimeService;
+  final NotificationService notificationService;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +74,7 @@ class App extends StatelessWidget {
           builder: (context, state) => LoginScreen(
             storage: storage,
             apiService: apiService,
+            realtimeService: realtimeService,
           ),
         ),
         // редирект с корня на кассу
@@ -73,6 +82,8 @@ class App extends StatelessWidget {
           builder: (context, state, child) => AppShell(
             storage: storage,
             apiService: apiService,
+            realtimeService: realtimeService,
+            notificationService: notificationService,
             child: child,
           ),
           routes: [
@@ -291,6 +302,27 @@ class App extends StatelessWidget {
               ),
             ),
             GoRoute(
+              path: '/orders',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: OrdersScreen(
+                  apiService: apiService,
+                  realtimeService: realtimeService,
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/orders/:id',
+              pageBuilder: (context, state) {
+                final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+                return NoTransitionPage(
+                  child: OrderDetailScreen(
+                    apiService: apiService,
+                    orderId: id,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
               path: '/product-receipts',
               pageBuilder: (context, state) => NoTransitionPage(
                 child: ProductReceiptsScreen(apiService: apiService),
@@ -318,7 +350,10 @@ class App extends StatelessWidget {
             GoRoute(
               path: '/tasks',
               pageBuilder: (context, state) => NoTransitionPage(
-                child: TasksScreen(apiService: apiService),
+                child: TasksScreen(
+                  apiService: apiService,
+                  realtimeService: realtimeService,
+                ),
               ),
             ),
           ],

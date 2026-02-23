@@ -1,16 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
 import '../models/task.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 import '../utils/toast.dart';
 import '../state/task_state.dart';
 import '../widgets/task_form_dialog.dart';
 
 class TasksScreen extends StatefulWidget {
-  const TasksScreen({super.key, required this.apiService});
+  const TasksScreen({
+    super.key,
+    required this.apiService,
+    required this.realtimeService,
+  });
 
   final ApiService apiService;
+  final RealtimeService realtimeService;
 
   @override
   State<TasksScreen> createState() => _TasksScreenState();
@@ -22,11 +30,23 @@ class _TasksScreenState extends State<TasksScreen> {
   TaskStatus? _selectedStatus;
   bool _isLoading = true;
   String? _error;
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _realtimeSub = widget.realtimeService.notifications
+        .where((n) => n.type == 'task')
+        .listen((_) {
+      if (mounted) _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _realtimeSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {

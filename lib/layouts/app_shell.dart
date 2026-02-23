@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -5,6 +7,8 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/storage.dart';
 import '../core/theme.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
+import '../services/realtime_service.dart';
 import '../state/cashier_state.dart';
 import '../state/task_state.dart';
 import '../widgets/today_tasks_dropdown.dart';
@@ -14,11 +18,15 @@ class AppShell extends StatefulWidget {
     super.key,
     required this.storage,
     required this.apiService,
+    required this.realtimeService,
+    required this.notificationService,
     required this.child,
   });
 
   final Storage storage;
   final ApiService apiService;
+  final RealtimeService realtimeService;
+  final NotificationService notificationService;
   final Widget child;
 
   @override
@@ -28,12 +36,58 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late final CashierState _cashierState;
   late final TaskState _taskState;
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _cashierState = CashierState();
     _taskState = TaskState(widget.apiService);
+    if (widget.storage.token != null && widget.storage.token!.isNotEmpty) {
+      _initRealtime();
+      _initNotifications();
+    }
+    _realtimeSub = widget.realtimeService.notifications.listen(_onRealtimeNotification);
+  }
+
+  Future<void> _initRealtime() async {
+    try {
+      await widget.realtimeService.connect();
+    } catch (e) {
+      if (mounted) {
+        debugPrint('RealtimeService init error: $e');
+      }
+    }
+  }
+
+  Future<void> _initNotifications() async {
+    try {
+      await widget.notificationService.requestPermissions();
+    } catch (e) {
+      if (mounted) {
+        debugPrint('NotificationService init error: $e');
+      }
+    }
+  }
+
+  void _onRealtimeNotification(dynamic n) {
+    if (!mounted) return;
+    if (n is RealtimeNotification) {
+      widget.notificationService.showFromRealtime(n);
+    }
+    final message = n is RealtimeNotification ? n.message : n.toString();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _realtimeSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -46,6 +100,7 @@ class _AppShellState extends State<AppShell> {
           _Sidebar(
             currentLocation: location,
             onLogout: () async {
+              await widget.realtimeService.disconnect();
               await widget.apiService.logout();
               if (context.mounted) {
                 context.go('/login');
@@ -170,6 +225,13 @@ class _Sidebar extends StatelessWidget {
                   isSelected: currentLocation == '/sales' ||
                       currentLocation.startsWith('/sales/'),
                   onTap: () => context.go('/sales'),
+                ),
+                _NavItem(
+                  icon: PhosphorIconsRegular.shoppingBag,
+                  label: 'Онлайн заказы',
+                  isSelected: currentLocation == '/orders' ||
+                      currentLocation.startsWith('/orders/'),
+                  onTap: () => context.go('/orders'),
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.creditCard,

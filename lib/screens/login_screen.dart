@@ -4,16 +4,19 @@ import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
 import '../core/storage.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
     super.key,
     required this.storage,
     required this.apiService,
+    required this.realtimeService,
   });
 
   final Storage storage;
   final ApiService apiService;
+  final RealtimeService realtimeService;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -65,6 +68,8 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (!mounted) return;
+      await widget.realtimeService.connect();
+      if (!mounted) return;
       context.go('/cashier');
     } catch (e) {
       String message = 'Ошибка входа';
@@ -97,19 +102,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(
-                    Icons.point_of_sale,
-                    size: 64,
-                    color: AppColors.primary,
-                  ),
+                  Icon(Icons.point_of_sale, size: 64, color: AppColors.primary),
                   const SizedBox(height: 16),
                   Text(
                     'Alfoods Касса',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.surface,
-                        ),
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.surface,
+                    ),
                   ),
                   const SizedBox(height: 32),
                   TextFormField(

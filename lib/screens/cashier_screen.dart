@@ -102,7 +102,6 @@ class _CashierScreenState extends State<CashierScreen> {
     });
     try {
       await widget.apiService.createShift();
-      widget.apiService.clearBarcodeCache();
       await _loadShifts();
     } catch (e) {
       if (!mounted) return;
@@ -143,7 +142,6 @@ class _CashierScreenState extends State<CashierScreen> {
     });
     try {
       await widget.apiService.closeShift(shift.id);
-      widget.apiService.clearBarcodeCache();
       await _loadShifts();
     } catch (e) {
       if (!mounted) return;

@@ -42,6 +42,8 @@ dependencies:
   barcode: ^2.2.9
   barcode_image: ^2.0.3
   image: ^4.0.17
+  centrifuge: ^0.18.0
+  flutter_local_notifications: ^18.0.1
   flutter_launcher_icons: ^0.14.4
 dev_dependencies:
   flutter_test:

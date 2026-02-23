@@ -6,6 +6,7 @@ import '../models/category.dart';
 import '../models/cashier.dart';
 import '../models/counterparty.dart';
 import '../models/debt_payment.dart';
+import '../models/order.dart';
 import '../models/product.dart';
 import '../models/product_receipt.dart';
 import '../models/product_set.dart';
@@ -38,13 +39,6 @@ class ApiService {
   final Storage _storage;
   final ApiClient _apiClient;
 
-  /// In-memory cache: barcode -> resolved product or set. Cleared on shift/screen change.
-  final Map<String, BarcodeResolveResult> _barcodeCache = {};
-
-  void clearBarcodeCache() {
-    _barcodeCache.clear();
-  }
-
   /// Login with user-provided baseUrl (before it's saved to storage)
   Future<LoginResult> login({
     required String baseUrl,
@@ -72,13 +66,21 @@ class ApiService {
     final token = data['token'] as String;
     final userJson = data['user'] as Map<String, dynamic>;
     final user = User.fromJson(userJson);
+    final centrifugoWsUrl = data['centrifugo_ws_url'] as String?;
+    final centrifugoToken = data['centrifugo_token'] as String?;
 
     await _storage.setBaseUrl(baseUrl.endsWith('/') ? baseUrl : '$baseUrl/');
     await _storage.setToken(token);
     await _storage.setUser(userJson);
+    if (centrifugoWsUrl != null && centrifugoWsUrl.isNotEmpty) {
+      await _storage.setCentrifugoWsUrl(centrifugoWsUrl);
+    }
+    if (centrifugoToken != null && centrifugoToken.isNotEmpty) {
+      await _storage.setCentrifugoToken(centrifugoToken);
+    }
     _apiClient.reconfigure();
 
-    return LoginResult(token: token, user: user);
+    return LoginResult(token: token, user: user, centrifugoWsUrl: centrifugoWsUrl);
   }
 
   Future<void> logout() async {
@@ -202,13 +204,11 @@ class ApiService {
     return list.isEmpty ? null : list.first;
   }
 
-  /// Resolve barcode to product or set in one request. Uses in-memory cache.
+  /// Resolve barcode to product or set in one request. Always fetches from API (no cache).
   /// Returns null if not found (404).
   Future<BarcodeResolveResult?> resolveBarcode(String barcode) async {
     final key = barcode.trim();
     if (key.isEmpty) return null;
-    final cached = _barcodeCache[key];
-    if (cached != null) return cached;
     try {
       final response = await _apiClient.dio.get(
         'api/barcode/resolve',
@@ -218,16 +218,13 @@ class ApiService {
       final type = data['type'] as String?;
       final payload = data['data'] as Map<String, dynamic>?;
       if (payload == null) return null;
-      BarcodeResolveResult result;
       if (type == 'product') {
-        result = BarcodeResolveResult.product(Product.fromJson(payload));
-      } else if (type == 'set') {
-        result = BarcodeResolveResult.set(ProductSet.fromJson(payload));
-      } else {
-        return null;
+        return BarcodeResolveResult.product(Product.fromJson(payload));
       }
-      _barcodeCache[key] = result;
-      return result;
+      if (type == 'set') {
+        return BarcodeResolveResult.set(ProductSet.fromJson(payload));
+      }
+      return null;
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) return null;
       rethrow;
@@ -572,11 +569,69 @@ class ApiService {
   Future<void> deleteTask(int id) async {
     await _apiClient.dio.delete('api/tasks/$id');
   }
+
+  // Online orders (website orders)
+  Future<PaginatedOrders> getOrders({
+    String? search,
+    String? status,
+    String? dateFrom,
+    String? dateTo,
+    int? page,
+  }) async {
+    final queryParams = <String, dynamic>{};
+    if (search != null && search.trim().isNotEmpty) {
+      queryParams['search'] = search.trim();
+    }
+    if (status != null && status.isNotEmpty) queryParams['status'] = status;
+    if (dateFrom != null && dateFrom.isNotEmpty) queryParams['date_from'] = dateFrom;
+    if (dateTo != null && dateTo.isNotEmpty) queryParams['date_to'] = dateTo;
+    if (page != null) queryParams['page'] = page;
+    final response = await _apiClient.dio.get(
+      'api/orders',
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
+    final data = response.data;
+    if (data is List<dynamic>) {
+      final list = data
+          .map((e) => Order.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return PaginatedOrders(
+        data: list,
+        total: list.length,
+        perPage: list.length,
+        currentPage: 1,
+      );
+    }
+    final map = data as Map<String, dynamic>;
+    final items = (map['data'] as List<dynamic>)
+        .map((e) => Order.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedOrders(
+      data: items,
+      total: map['total'] as int,
+      perPage: map['per_page'] as int,
+      currentPage: map['current_page'] as int,
+    );
+  }
+
+  Future<Order> getOrder(int id) async {
+    final response = await _apiClient.dio.get('api/orders/$id');
+    return Order.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Order> updateOrderStatus(int id, String status) async {
+    final response = await _apiClient.dio.patch(
+      'api/orders/$id',
+      data: {'status': status},
+    );
+    return Order.fromJson(response.data as Map<String, dynamic>);
+  }
 }
 
 class LoginResult {
   final String token;
   final User user;
+  final String? centrifugoWsUrl;
 
-  LoginResult({required this.token, required this.user});
+  LoginResult({required this.token, required this.user, this.centrifugoWsUrl});
 }

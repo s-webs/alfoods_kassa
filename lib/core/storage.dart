@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class Storage {
   static const _keyBaseUrl = 'base_url';
+  static const _keyCentrifugoWsUrl = 'centrifugo_ws_url';
+  static const _keyCentrifugoToken = 'centrifugo_token';
   static const _keyToken = 'token';
   static const _keyUser = 'user';
   static const _keyReceiptPrinterName = 'receipt_printer_name';
@@ -26,6 +28,26 @@ class Storage {
 
   String? get baseUrl => _prefs.getString(_keyBaseUrl);
   Future<void> setBaseUrl(String url) => _prefs.setString(_keyBaseUrl, url);
+
+  /// WebSocket URL for Centrifugo. If null, derived from baseUrl (same host, path /connection/websocket).
+  String? get centrifugoWsUrl => _prefs.getString(_keyCentrifugoWsUrl);
+  Future<void> setCentrifugoWsUrl(String? url) async {
+    if (url == null || url.isEmpty) {
+      await _prefs.remove(_keyCentrifugoWsUrl);
+    } else {
+      await _prefs.setString(_keyCentrifugoWsUrl, url);
+    }
+  }
+
+  /// JWT for Centrifugo connection (from login response).
+  String? get centrifugoToken => _prefs.getString(_keyCentrifugoToken);
+  Future<void> setCentrifugoToken(String? token) async {
+    if (token == null || token.isEmpty) {
+      await _prefs.remove(_keyCentrifugoToken);
+    } else {
+      await _prefs.setString(_keyCentrifugoToken, token);
+    }
+  }
 
   String? get token => _prefs.getString(_keyToken);
   Future<void> setToken(String token) => _prefs.setString(_keyToken, token);
@@ -131,6 +153,8 @@ class Storage {
   Future<void> clearAuth() async {
     await _prefs.remove(_keyToken);
     await _prefs.remove(_keyUser);
+    await _prefs.remove(_keyCentrifugoWsUrl);
+    await _prefs.remove(_keyCentrifugoToken);
   }
 
   Future<void> clearAll() async {
