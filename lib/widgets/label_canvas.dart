@@ -41,12 +41,14 @@ class _LabelCanvasState extends State<LabelCanvas> {
     _loadBarcode();
   }
 
+  static const double _barcodeAspectRatio = 2.5;
+
   @override
   void didUpdateWidget(LabelCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.product?.barcode != widget.product?.barcode ||
-        oldWidget.style.barcodeWidthFactor != widget.style.barcodeWidthFactor ||
-        oldWidget.style.barcodeHeightFactor != widget.style.barcodeHeightFactor) {
+        oldWidget.style.barcodeScaleFactor != widget.style.barcodeScaleFactor ||
+        oldWidget.style.barcodeHeightScaleFactor != widget.style.barcodeHeightScaleFactor) {
       _loadBarcode();
     }
   }
@@ -57,8 +59,10 @@ class _LabelCanvasState extends State<LabelCanvas> {
       setState(() => _barcodePng = null);
       return;
     }
-    final w = (_w * widget.style.barcodeWidthFactor * 2).round().clamp(50, 800);
-    final h = (_h * widget.style.barcodeHeightFactor * 2).round().clamp(20, 400);
+    final w = (_w * widget.style.barcodeScaleFactor * 2).round().clamp(50, 800);
+    final h = (w / _barcodeAspectRatio * widget.style.barcodeHeightScaleFactor)
+        .round()
+        .clamp(20, 400);
     final bytes = await barcodeToPngBytes(barcode, width: w, height: h);
     if (mounted) setState(() => _barcodePng = bytes);
   }
@@ -128,9 +132,12 @@ class _LabelCanvasState extends State<LabelCanvas> {
         break;
       case LabelBlockType.barcode:
         if (_barcodePng != null) {
+          final bw = _w * widget.style.barcodeScaleFactor;
+          final bh =
+              (bw / _barcodeAspectRatio) * widget.style.barcodeHeightScaleFactor;
           content = SizedBox(
-            width: _w * widget.style.barcodeWidthFactor,
-            height: _h * widget.style.barcodeHeightFactor,
+            width: bw,
+            height: bh,
             child: Image.memory(_barcodePng!, fit: BoxFit.contain),
           );
         } else {
@@ -158,8 +165,8 @@ class _LabelCanvasState extends State<LabelCanvas> {
           child: Text(
             desc.isNotEmpty ? desc : 'Описание',
             style: TextStyle(fontSize: fd, color: desc.isEmpty ? AppColors.muted : null),
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
+            maxLines: null,
+            overflow: TextOverflow.visible,
           ),
         );
         break;

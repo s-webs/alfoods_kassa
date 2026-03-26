@@ -86,7 +86,9 @@ class _AddProductDialogState extends State<AddProductDialog>
       _filteredProducts = List.from(_products);
     } else {
       _filteredProducts = _products
-          .where((p) => p.name.toLowerCase().contains(query))
+          .where((p) =>
+              p.name.toLowerCase().contains(query) ||
+              (p.barcode ?? '').toLowerCase().contains(query))
           .toList();
     }
   }
@@ -97,7 +99,9 @@ class _AddProductDialogState extends State<AddProductDialog>
       _filteredSets = List.from(_sets);
     } else {
       _filteredSets =
-          _sets.where((s) => s.name.toLowerCase().contains(query)).toList();
+          _sets.where((s) =>
+              s.name.toLowerCase().contains(query) ||
+              (s.barcode ?? '').toLowerCase().contains(query)).toList();
     }
   }
 
@@ -142,7 +146,7 @@ class _AddProductDialogState extends State<AddProductDialog>
                     child: TextField(
                       controller: _searchController,
                       decoration: const InputDecoration(
-                        hintText: 'Поиск по названию...',
+                        hintText: 'Поиск по названию или штрихкоду...',
                         prefixIcon: Icon(Icons.search),
                       ),
                       onChanged: _onSearchChanged,

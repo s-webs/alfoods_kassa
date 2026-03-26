@@ -99,6 +99,9 @@ class NotificationService {
 
   /// Show local notification from a RealtimeNotification (Centrifugo).
   void showFromRealtime(RealtimeNotification n) {
+    if (kDebugMode) {
+      print('📢 NotificationService: showing notification for ${n.type}: ${n.message}');
+    }
     showLocalNotification(
       title: n.type == 'order' ? 'Заказ' : 'Задача',
       body: n.message,

@@ -20,6 +20,7 @@ import '../widgets/invoice_dialog.dart';
 import '../widgets/pay_debt_dialog.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
+import '../utils/time_util.dart';
 import '../utils/toast.dart';
 
 class SaleDetailScreen extends StatefulWidget {
@@ -571,12 +572,15 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     final cashiersMatch = _cashiers.where((c) => c.id == _selectedCashierId).toList();
     final cashierName = cashiersMatch.isNotEmpty ? cashiersMatch.first.name : '—';
     try {
-      final dateTime = _sale?.createdAt ?? DateTime.now();
+      final dateTime =
+          TimeUtil.toUtcPlus5Wall(_sale?.createdAt ?? DateTime.now());
+      final totalQty = _items.fold<double>(0, (sum, item) => sum + item.quantity);
       final bytes = ReceiptPrinterService.buildReceipt(
         saleId: widget.saleId,
         cashierName: cashierName,
         items: _items,
         total: _itemsTotal,
+        totalQty: totalQty,
         dateTime: dateTime,
       );
       await ReceiptPrinterService.printReceipt(
@@ -587,6 +591,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         cashierName: cashierName,
         items: _items,
         total: _itemsTotal,
+        totalQty: totalQty,
         dateTime: dateTime,
       );
       if (!mounted) return;
@@ -609,12 +614,16 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     final cashiersMatch = _cashiers.where((c) => c.id == _selectedCashierId).toList();
     final cashierName = cashiersMatch.isNotEmpty ? cashiersMatch.first.name : '—';
     try {
+      final totalQty = _items.fold<double>(0, (sum, item) => sum + item.quantity);
+      final dateTime =
+          TimeUtil.toUtcPlus5Wall(_sale?.createdAt ?? DateTime.now());
       final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
         saleId: widget.saleId,
         cashierName: cashierName,
         items: _items,
         total: _itemsTotal,
-        dateTime: _sale?.createdAt ?? DateTime.now(),
+        totalQty: totalQty,
+        dateTime: dateTime,
       );
       final path = await FilePicker.platform.saveFile(
         dialogTitle: 'Сохранить чек в PDF',
@@ -700,6 +709,64 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
         ),
+        actions: [
+          if (!isReturned) ...[
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf),
+              tooltip: 'Сохранить в PDF',
+              onPressed: _items.isEmpty ? null : _saveReceiptPdf,
+            ),
+            IconButton(
+              icon: const Icon(Icons.save),
+              tooltip: 'Сохранить',
+              onPressed: _isSaving ? null : _save,
+            ),
+            if (Platform.isWindows)
+              IconButton(
+                icon: const Icon(Icons.print),
+                tooltip: 'Печать чека',
+                onPressed: _items.isEmpty ? null : _printReceipt,
+              ),
+            PopupMenuButton<String>(
+              tooltip: 'Действия',
+              onSelected: (value) async {
+                if (_isSaving) return;
+                switch (value) {
+                  case 'invoice':
+                    showInvoiceDialog(
+                      context: context,
+                      apiService: widget.apiService,
+                      items: List.from(_items),
+                      initialDocumentNumber: '${sale.id}',
+                      storage: widget.storage,
+                    );
+                    break;
+                  case 'return':
+                    await _returnSale();
+                    break;
+                  case 'delete':
+                    await _delete();
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                if (!isReturned && _items.isNotEmpty)
+                  const PopupMenuItem(
+                    value: 'invoice',
+                    child: Text('Накладная'),
+                  ),
+                const PopupMenuItem(
+                  value: 'return',
+                  child: Text('Оформить возврат'),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Удалить'),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -735,8 +802,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${sale.createdAt.day.toString().padLeft(2, '0')}.${sale.createdAt.month.toString().padLeft(2, '0')}.${sale.createdAt.year} '
-                      '${sale.createdAt.hour.toString().padLeft(2, '0')}:${sale.createdAt.minute.toString().padLeft(2, '0')}',
+                      '${TimeUtil.toUtcPlus5Wall(sale.createdAt).day.toString().padLeft(2, '0')}.${TimeUtil.toUtcPlus5Wall(sale.createdAt).month.toString().padLeft(2, '0')}.${TimeUtil.toUtcPlus5Wall(sale.createdAt).year} '
+                      '${TimeUtil.toUtcPlus5Wall(sale.createdAt).hour.toString().padLeft(2, '0')}:${TimeUtil.toUtcPlus5Wall(sale.createdAt).minute.toString().padLeft(2, '0')}',
                       style: TextStyle(color: AppColors.muted),
                     ),
                     const Divider(),
@@ -1070,7 +1137,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          '${payment.paymentDate.day.toString().padLeft(2, '0')}.${payment.paymentDate.month.toString().padLeft(2, '0')}.${payment.paymentDate.year}',
+                                          '${TimeUtil.toUtcPlus5Wall(payment.paymentDate).day.toString().padLeft(2, '0')}.${TimeUtil.toUtcPlus5Wall(payment.paymentDate).month.toString().padLeft(2, '0')}.${TimeUtil.toUtcPlus5Wall(payment.paymentDate).year}',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: AppColors.muted,
@@ -1142,76 +1209,14 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                     (s) => DropdownMenuItem(
                       value: s.id,
                       child: Text(
-                        '${s.openedAt.day.toString().padLeft(2, '0')}.${s.openedAt.month.toString().padLeft(2, '0')} '
-                        '${s.openedAt.hour.toString().padLeft(2, '0')}:${s.openedAt.minute.toString().padLeft(2, '0')}'
+                        '${TimeUtil.toUtcPlus5Wall(s.openedAt).day.toString().padLeft(2, '0')}.${TimeUtil.toUtcPlus5Wall(s.openedAt).month.toString().padLeft(2, '0')} '
+                        '${TimeUtil.toUtcPlus5Wall(s.openedAt).hour.toString().padLeft(2, '0')}:${TimeUtil.toUtcPlus5Wall(s.openedAt).minute.toString().padLeft(2, '0')}'
                         '${s.closedAt != null ? ' (закрыта)' : ' (открыта)'}',
                       ),
                     ),
                   ),
                 ],
                 onChanged: (v) => setState(() => _selectedShiftId = v),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _items.isEmpty ? null : _saveReceiptPdf,
-                icon: const Icon(Icons.picture_as_pdf, size: 20),
-                label: const Text('Сохранить в PDF'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (Platform.isWindows)
-                FilledButton.icon(
-                  onPressed: _items.isEmpty ? null : _printReceipt,
-                  icon: const Icon(Icons.print, size: 20),
-                  label: const Text('Печать чека'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                  ),
-                ),
-              if (Platform.isWindows) const SizedBox(height: 12),
-              if (!isReturned && _items.isNotEmpty) ...[
-                OutlinedButton.icon(
-                  onPressed: () => showInvoiceDialog(
-                    context: context,
-                    apiService: widget.apiService,
-                    items: List.from(_items),
-                    initialDocumentNumber: '${sale.id}',
-                    storage: widget.storage,
-                  ),
-                  icon: const Icon(Icons.description, size: 20),
-                  label: const Text('Накладная'),
-                ),
-                const SizedBox(height: 12),
-              ],
-              FilledButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Сохранить'),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: _isSaving ? null : _returnSale,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.accent,
-                  side: const BorderSide(color: AppColors.accent),
-                ),
-                child: const Text('Оформить возврат'),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: _isSaving ? null : _delete,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.danger,
-                  side: const BorderSide(color: AppColors.danger),
-                ),
-                child: const Text('Удалить'),
               ),
             ],
           ],

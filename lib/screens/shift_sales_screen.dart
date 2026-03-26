@@ -5,6 +5,7 @@ import '../core/theme.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../utils/time_util.dart';
 
 class ShiftSalesScreen extends StatefulWidget {
   const ShiftSalesScreen({
@@ -60,11 +61,11 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
 
   String _formatShiftTitle(Shift s) {
     final opened =
-        '${s.openedAt.day.toString().padLeft(2, '0')}.${s.openedAt.month.toString().padLeft(2, '0')}.${s.openedAt.year} '
-        '${s.openedAt.hour.toString().padLeft(2, '0')}:${s.openedAt.minute.toString().padLeft(2, '0')}';
+        '${TimeUtil.toUtcPlus5Wall(s.openedAt).day.toString().padLeft(2, '0')}.${TimeUtil.toUtcPlus5Wall(s.openedAt).month.toString().padLeft(2, '0')}.${TimeUtil.toUtcPlus5Wall(s.openedAt).year} '
+        '${TimeUtil.toUtcPlus5Wall(s.openedAt).hour.toString().padLeft(2, '0')}:${TimeUtil.toUtcPlus5Wall(s.openedAt).minute.toString().padLeft(2, '0')}';
     if (s.closedAt != null) {
       final closed =
-          '${s.closedAt!.hour.toString().padLeft(2, '0')}:${s.closedAt!.minute.toString().padLeft(2, '0')}';
+          '${TimeUtil.toUtcPlus5Wall(s.closedAt!).hour.toString().padLeft(2, '0')}:${TimeUtil.toUtcPlus5Wall(s.closedAt!).minute.toString().padLeft(2, '0')}';
       return '$opened – $closed';
     }
     return '$opened (открыта)';

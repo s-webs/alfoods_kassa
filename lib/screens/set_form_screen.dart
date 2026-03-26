@@ -281,7 +281,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
       return LabelTemplate.fromJson(metaVal);
     }
     if (metaVal is Map) {
-      return LabelTemplate.fromJson(Map<String, dynamic>.from(metaVal as Map));
+      return LabelTemplate.fromJson(Map<String, dynamic>.from(metaVal));
     }
     if (storageJson != null) {
       return LabelTemplate.fromJson(storageJson);
@@ -293,8 +293,8 @@ class _SetFormScreenState extends State<SetFormScreen> {
     if (a.widthMm != b.widthMm || a.heightMm != b.heightMm) return true;
     if (a.style.nameFontSize != b.style.nameFontSize ||
         a.style.priceFontSize != b.style.priceFontSize ||
-        a.style.barcodeWidthFactor != b.style.barcodeWidthFactor ||
-        a.style.barcodeHeightFactor != b.style.barcodeHeightFactor) {
+        a.style.barcodeScaleFactor != b.style.barcodeScaleFactor ||
+        a.style.barcodeHeightScaleFactor != b.style.barcodeHeightScaleFactor) {
       return true;
     }
     if (a.blockLayout.length != b.blockLayout.length) return true;

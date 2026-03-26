@@ -88,30 +88,33 @@ class LabelStyleControls extends StatelessWidget {
               onChanged: (v) => onChanged(style.copyWith(priceFontSize: v)),
             ),
             Text(
-              'Ширина штрихкода: ${(style.barcodeWidthFactor * 100).toStringAsFixed(0)}%',
+              'Масштаб штрихкода: ${(style.barcodeScaleFactor * 100).toStringAsFixed(0)}%',
               style: const TextStyle(fontSize: 12),
             ),
             Slider(
-              value: style.barcodeWidthFactor,
+              value: style.barcodeScaleFactor,
               min: LabelStyle.minBarcodeFactor,
               max: LabelStyle.maxBarcodeFactor,
               divisions: 17,
-              label: '${(style.barcodeWidthFactor * 100).toStringAsFixed(0)}%',
+              label: '${(style.barcodeScaleFactor * 100).toStringAsFixed(0)}%',
               onChanged: (v) =>
-                  onChanged(style.copyWith(barcodeWidthFactor: v)),
+                  onChanged(style.copyWith(barcodeScaleFactor: v)),
             ),
+            const SizedBox(height: 8),
             Text(
-              'Высота штрихкода: ${(style.barcodeHeightFactor * 100).toStringAsFixed(0)}%',
+              'Масштаб высоты штрихкода: ${(style.barcodeHeightScaleFactor * 100).toStringAsFixed(0)}%',
               style: const TextStyle(fontSize: 12),
             ),
             Slider(
-              value: style.barcodeHeightFactor,
-              min: LabelStyle.minBarcodeFactor,
-              max: LabelStyle.maxBarcodeFactor,
-              divisions: 17,
-              label: '${(style.barcodeHeightFactor * 100).toStringAsFixed(0)}%',
-              onChanged: (v) =>
-                  onChanged(style.copyWith(barcodeHeightFactor: v)),
+              value: style.barcodeHeightScaleFactor,
+              min: LabelStyle.minBarcodeHeightFactor,
+              max: LabelStyle.maxBarcodeHeightFactor,
+              divisions: 20,
+              label:
+                  '${(style.barcodeHeightScaleFactor * 100).toStringAsFixed(0)}%',
+              onChanged: (v) => onChanged(
+                style.copyWith(barcodeHeightScaleFactor: v),
+              ),
             ),
           ],
         ),

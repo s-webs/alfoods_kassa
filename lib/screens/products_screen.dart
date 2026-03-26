@@ -24,7 +24,7 @@ class ProductsScreen extends StatefulWidget {
   State<ProductsScreen> createState() => _ProductsScreenState();
 }
 
-enum _ProductsSortKey { id, name, stock, price, purchasePrice }
+enum _ProductsSortKey { id, name, stockThreshold, stock, price, purchasePrice }
 
 class _ProductsScreenState extends State<ProductsScreen> {
   List<Product> _products = [];
@@ -107,6 +107,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
       case _ProductsSortKey.name:
         cmp = a.name.compareTo(b.name);
         break;
+      case _ProductsSortKey.stockThreshold:
+        cmp = a.stockThreshold.compareTo(b.stockThreshold);
+        break;
       case _ProductsSortKey.stock:
         cmp = a.stock.compareTo(b.stock);
         break;
@@ -126,8 +129,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
         _sortAsc = !_sortAsc;
       } else {
         _sortKey = key;
-        _sortAsc =
-            (key == _ProductsSortKey.name || key == _ProductsSortKey.stock);
+        _sortAsc = (key == _ProductsSortKey.name ||
+            key == _ProductsSortKey.stock ||
+            key == _ProductsSortKey.stockThreshold);
       }
     });
   }
@@ -194,6 +198,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
           ),
           Expanded(child: _sortHeader('Название', _ProductsSortKey.name)),
           const SizedBox(width: _colBarcode, child: Text('Штрихкод')),
+          SizedBox(
+            width: _colThreshold,
+            child: _sortHeader('Порог', _ProductsSortKey.stockThreshold),
+          ),
           SizedBox(
             width: _colStock,
             child: _sortHeader('Остатки', _ProductsSortKey.stock),
@@ -275,6 +283,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 child: Text(
                   p.barcode ?? '-',
                   overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(
+                width: _colThreshold,
+                child: Text(
+                  p.unit == 'pcs'
+                      ? p.stockThreshold.toStringAsFixed(0)
+                      : _formatStock(p.stockThreshold),
                 ),
               ),
               SizedBox(
@@ -454,7 +470,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   static const int _allCategoriesId = -1;
 
-  static const double _colCheck = 48, _colId = 52, _colStock = 88;
+  static const double _colCheck = 48, _colId = 52, _colThreshold = 88, _colStock = 88;
   static const double _colBarcode = 120;
   static const double _colPurchase = 110, _colPrice = 72;
   static const double _colCost = 92,

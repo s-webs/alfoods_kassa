@@ -91,14 +91,17 @@ class LabelBlockLayout {
   ];
 }
 
+/// Соотношение сторон штрихкода как в превью (ширина : высота = 2.5 : 1).
+const double _barcodeAspectRatio = 2.5;
+
 /// Настройки оформления этикетки: размеры шрифтов и штрихкода.
 class LabelStyle {
   const LabelStyle({
     this.nameFontSize = 8,
     this.priceFontSize = 10,
     this.descriptionFontSize = 7,
-    this.barcodeWidthFactor = 0.95,
-    this.barcodeHeightFactor = 0.35,
+    this.barcodeScaleFactor = 0.95,
+    this.barcodeHeightScaleFactor = 1.0,
     this.showBorder = true,
   });
 
@@ -111,11 +114,12 @@ class LabelStyle {
   /// Размер шрифта описания (pt).
   final double descriptionFontSize;
 
-  /// Ширина штрихкода — доля от ширины стикера (0..1).
-  final double barcodeWidthFactor;
+  /// Масштаб штрихкода — доля ширины холста (0.15..1). Высота = ширина / 2.5.
+  final double barcodeScaleFactor;
 
-  /// Высота штрихкода — доля от высоты стикера (0..1).
-  final double barcodeHeightFactor;
+  /// Масштаб высоты штрихкода относительно вычисленной из ширины высоты.
+  /// Позволяет менять высоту независимо от ширины.
+  final double barcodeHeightScaleFactor;
 
   /// Показывать ли границу вокруг этикетки/ценника.
   final bool showBorder;
@@ -124,15 +128,16 @@ class LabelStyle {
     double? nameFontSize,
     double? priceFontSize,
     double? descriptionFontSize,
-    double? barcodeWidthFactor,
-    double? barcodeHeightFactor,
+    double? barcodeScaleFactor,
+    double? barcodeHeightScaleFactor,
     bool? showBorder,
   }) => LabelStyle(
     nameFontSize: nameFontSize ?? this.nameFontSize,
     priceFontSize: priceFontSize ?? this.priceFontSize,
     descriptionFontSize: descriptionFontSize ?? this.descriptionFontSize,
-    barcodeWidthFactor: barcodeWidthFactor ?? this.barcodeWidthFactor,
-    barcodeHeightFactor: barcodeHeightFactor ?? this.barcodeHeightFactor,
+    barcodeScaleFactor: barcodeScaleFactor ?? this.barcodeScaleFactor,
+    barcodeHeightScaleFactor:
+        barcodeHeightScaleFactor ?? this.barcodeHeightScaleFactor,
     showBorder: showBorder ?? this.showBorder,
   );
 
@@ -140,27 +145,32 @@ class LabelStyle {
   static const double maxFontSize = 36;
   static const double minBarcodeFactor = 0.15;
   static const double maxBarcodeFactor = 1.0;
+  static const double minBarcodeHeightFactor = 0.5;
+  static const double maxBarcodeHeightFactor = 1.5;
 
   Map<String, dynamic> toJson() => {
     'nameFontSize': nameFontSize,
     'priceFontSize': priceFontSize,
     'descriptionFontSize': descriptionFontSize,
-    'barcodeWidthFactor': barcodeWidthFactor,
-    'barcodeHeightFactor': barcodeHeightFactor,
+    'barcodeScaleFactor': barcodeScaleFactor,
+    'barcodeHeightScaleFactor': barcodeHeightScaleFactor,
     'showBorder': showBorder,
   };
 
   static LabelStyle fromJson(Map<String, dynamic>? json) {
     if (json == null) return const LabelStyle();
+    final scale = (json['barcodeScaleFactor'] as num?)?.toDouble() ??
+        (json['barcodeWidthFactor'] as num?)?.toDouble() ??
+        0.95;
+    final heightScale = (json['barcodeHeightScaleFactor'] as num?)?.toDouble() ??
+        1.0;
     return LabelStyle(
       nameFontSize: (json['nameFontSize'] as num?)?.toDouble() ?? 8,
       priceFontSize: (json['priceFontSize'] as num?)?.toDouble() ?? 10,
       descriptionFontSize:
           (json['descriptionFontSize'] as num?)?.toDouble() ?? 7,
-      barcodeWidthFactor:
-          (json['barcodeWidthFactor'] as num?)?.toDouble() ?? 0.95,
-      barcodeHeightFactor:
-          (json['barcodeHeightFactor'] as num?)?.toDouble() ?? 0.35,
+      barcodeScaleFactor: scale,
+      barcodeHeightScaleFactor: heightScale,
       showBorder: json['showBorder'] as bool? ?? true,
     );
   }
@@ -441,11 +451,11 @@ class LabelPdfService {
         case LabelBlockType.barcode:
           final barcodeStr = product.barcode?.trim() ?? '';
           if (barcodeStr.isNotEmpty) {
-            final bcW = (widthPt * style.barcodeWidthFactor * 2).round().clamp(
+            final bcW = (widthPt * style.barcodeScaleFactor * 2).round().clamp(
               50,
               800,
             );
-            final bcH = (heightPt * style.barcodeHeightFactor * 2)
+            final bcH = (bcW / _barcodeAspectRatio * style.barcodeHeightScaleFactor)
                 .round()
                 .clamp(20, 400);
             final pngBytes = await barcodeToPngBytes(
@@ -454,9 +464,12 @@ class LabelPdfService {
               height: bcH,
             );
             if (pngBytes != null) {
+              final w = widthPt * style.barcodeScaleFactor;
+              final h =
+                  (w / _barcodeAspectRatio) * style.barcodeHeightScaleFactor;
               content = pw.SizedBox(
-                width: widthPt * style.barcodeWidthFactor,
-                height: heightPt * style.barcodeHeightFactor,
+                width: w,
+                height: h,
                 child: pw.Image(
                   pw.MemoryImage(pngBytes),
                   fit: pw.BoxFit.contain,

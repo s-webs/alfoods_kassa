@@ -104,22 +104,14 @@ class ApiService {
   }
 
   Future<Shift> createShift() async {
-    final response = await _apiClient.dio.post(
-      'api/shifts',
-      data: {
-        'opened_at': DateTime.now().toUtc().toIso8601String(),
-      },
-    );
+    // Время открытия смены берём с сервера (не отправляем opened_at с клиента).
+    final response = await _apiClient.dio.post('api/shifts');
     return Shift.fromJson(response.data as Map<String, dynamic>);
   }
 
   Future<Shift> closeShift(int shiftId) async {
-    final response = await _apiClient.dio.patch(
-      'api/shifts/$shiftId',
-      data: {
-        'closed_at': DateTime.now().toUtc().toIso8601String(),
-      },
-    );
+    // Время закрытия смены берём с сервера (не отправляем closed_at с клиента).
+    final response = await _apiClient.dio.patch('api/shifts/$shiftId');
     return Shift.fromJson(response.data as Map<String, dynamic>);
   }
 

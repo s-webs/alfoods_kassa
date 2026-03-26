@@ -15,6 +15,7 @@ import '../state/cashier_state.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
 import '../utils/barcode_generator.dart';
+import '../utils/time_util.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
 import '../widgets/credit_sale_dialog.dart';
@@ -50,6 +51,8 @@ class _CashierScreenState extends State<CashierScreen> {
   int? _editingPriceIndex;
   TextEditingController? _nameEditController;
   TextEditingController? _priceEditController;
+  FocusNode? _nameEditFocusNode;
+  FocusNode? _priceEditFocusNode;
   bool _isResetting = false;
 
   @override
@@ -63,6 +66,10 @@ class _CashierScreenState extends State<CashierScreen> {
 
   @override
   void dispose() {
+    _nameEditFocusNode?.removeListener(_onNameEditFocusChange);
+    _nameEditFocusNode?.dispose();
+    _priceEditFocusNode?.removeListener(_onPriceEditFocusChange);
+    _priceEditFocusNode?.dispose();
     _barcodeFocusNode.dispose();
     _barcodeController.dispose();
     _nameEditController?.dispose();
@@ -103,6 +110,7 @@ class _CashierScreenState extends State<CashierScreen> {
     try {
       await widget.apiService.createShift();
       await _loadShifts();
+      _refocusBarcodeField();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -195,6 +203,7 @@ class _CashierScreenState extends State<CashierScreen> {
     final step = _quantityStep(item.unit);
     final newQty = item.quantity + delta * step;
     state.updateQuantityAt(index, newQty);
+    _refocusBarcodeField();
   }
 
   Future<void> _editQuantity(int index) async {
@@ -261,11 +270,22 @@ class _CashierScreenState extends State<CashierScreen> {
   void _startEditName(int index) {
     final state = CashierStateScope.of(context);
     if (index < 0 || index >= state.cart.length) return;
+    _nameEditFocusNode?.removeListener(_onNameEditFocusChange);
+    _nameEditFocusNode?.dispose();
+    _nameEditFocusNode = FocusNode();
+    _nameEditFocusNode!.addListener(_onNameEditFocusChange);
     setState(() {
       _editingNameIndex = index;
       _nameEditController?.dispose();
       _nameEditController = TextEditingController(text: state.cart[index].name);
     });
+  }
+
+  void _onNameEditFocusChange() {
+    if (_nameEditFocusNode != null && !_nameEditFocusNode!.hasFocus) {
+      _nameEditFocusNode!.removeListener(_onNameEditFocusChange);
+      _finishEditName();
+    }
   }
 
   void _finishEditName({bool save = true}) {
@@ -279,6 +299,9 @@ class _CashierScreenState extends State<CashierScreen> {
         CashierStateScope.of(context).updateNameAt(index, text);
       }
     }
+    _nameEditFocusNode?.removeListener(_onNameEditFocusChange);
+    _nameEditFocusNode?.dispose();
+    _nameEditFocusNode = null;
     _nameEditController?.dispose();
     _nameEditController = null;
     _editingNameIndex = null;
@@ -289,6 +312,10 @@ class _CashierScreenState extends State<CashierScreen> {
   void _startEditPrice(int index) {
     final state = CashierStateScope.of(context);
     if (index < 0 || index >= state.cart.length) return;
+    _priceEditFocusNode?.removeListener(_onPriceEditFocusChange);
+    _priceEditFocusNode?.dispose();
+    _priceEditFocusNode = FocusNode();
+    _priceEditFocusNode!.addListener(_onPriceEditFocusChange);
     setState(() {
       _editingPriceIndex = index;
       _priceEditController?.dispose();
@@ -296,6 +323,13 @@ class _CashierScreenState extends State<CashierScreen> {
         text: state.cart[index].price.toStringAsFixed(2),
       );
     });
+  }
+
+  void _onPriceEditFocusChange() {
+    if (_priceEditFocusNode != null && !_priceEditFocusNode!.hasFocus) {
+      _priceEditFocusNode!.removeListener(_onPriceEditFocusChange);
+      _finishEditPrice();
+    }
   }
 
   void _finishEditPrice({bool save = true}) {
@@ -310,6 +344,9 @@ class _CashierScreenState extends State<CashierScreen> {
         CashierStateScope.of(context).updatePriceAt(index, value);
       }
     }
+    _priceEditFocusNode?.removeListener(_onPriceEditFocusChange);
+    _priceEditFocusNode?.dispose();
+    _priceEditFocusNode = null;
     _priceEditController?.dispose();
     _priceEditController = null;
     _editingPriceIndex = null;
@@ -382,6 +419,16 @@ class _CashierScreenState extends State<CashierScreen> {
   Future<void> _onBarcodeSubmitted(String value) async {
     final barcode = value.trim();
     if (barcode.isEmpty) return;
+    // Большинство сканеров шлет штрихкод как набор цифр. QR-код часто приходит
+    // с URL/спецсимволами — не даём таким строкам уходить в resolveBarcode.
+    final isDigitsOnly = RegExp(r'^\d+$').hasMatch(barcode);
+    if (!isDigitsOnly || barcode.length > 32) {
+      if (mounted) {
+        showToast(context, 'Поддерживаются только штрихкоды (цифры)');
+      }
+      _refocusBarcodeField();
+      return;
+    }
     _barcodeController.clear();
     if (_isBarcodeLoading || !mounted) return;
     setState(() => _isBarcodeLoading = true);
@@ -1099,9 +1146,11 @@ class _CashierScreenState extends State<CashierScreen> {
   void _refocusBarcodeField() {
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _barcodeFocusNode.canRequestFocus) {
-        _barcodeFocusNode.requestFocus();
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _barcodeFocusNode.canRequestFocus) {
+          _barcodeFocusNode.requestFocus();
+        }
+      });
     });
   }
 
@@ -1150,12 +1199,15 @@ class _CashierScreenState extends State<CashierScreen> {
         return;
       }
       final id = saleId ?? state.lastSavedSaleId!;
-      final dateTime = DateTime.now();
+      final dateTime = TimeUtil.nowUtcPlus5Wall();
+      final totalQty =
+          state.cart.fold<double>(0, (sum, item) => sum + item.quantity);
       final bytes = ReceiptPrinterService.buildReceipt(
         saleId: id,
         cashierName: _cashierName,
         items: state.cart,
         total: state.cartTotal,
+        totalQty: totalQty,
         dateTime: dateTime,
       );
       await ReceiptPrinterService.printReceipt(
@@ -1166,6 +1218,7 @@ class _CashierScreenState extends State<CashierScreen> {
         cashierName: _cashierName,
         items: state.cart,
         total: state.cartTotal,
+        totalQty: totalQty,
         dateTime: dateTime,
       );
       if (!mounted) return;
@@ -1204,12 +1257,15 @@ class _CashierScreenState extends State<CashierScreen> {
         return;
       }
       final id = saleId ?? state.lastSavedSaleId!;
+      final totalQty =
+          state.cart.fold<double>(0, (sum, item) => sum + item.quantity);
       final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
         saleId: id,
         cashierName: _cashierName,
         items: state.cart,
         total: state.cartTotal,
-        dateTime: DateTime.now(),
+        totalQty: totalQty,
+        dateTime: TimeUtil.nowUtcPlus5Wall(),
       );
       final path = await FilePicker.platform.saveFile(
         dialogTitle: 'Сохранить чек в PDF',
@@ -1235,7 +1291,8 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   String _formatDate(DateTime dt) {
-    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final t = TimeUtil.toUtcPlus5Wall(dt);
+    return '${t.day.toString().padLeft(2, '0')}.${t.month.toString().padLeft(2, '0')}.${t.year} ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -1267,6 +1324,7 @@ class _CashierScreenState extends State<CashierScreen> {
                 child: TextField(
                   controller: _barcodeController,
                   focusNode: _barcodeFocusNode,
+                  keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.zero,
@@ -1528,6 +1586,7 @@ class _CashierScreenState extends State<CashierScreen> {
                                       _nameEditController != null)
                                   ? TextField(
                                       controller: _nameEditController,
+                                      focusNode: _nameEditFocusNode,
                                       autofocus: true,
                                       decoration: const InputDecoration(
                                         isDense: true,
@@ -1559,6 +1618,7 @@ class _CashierScreenState extends State<CashierScreen> {
                                       width: 140,
                                       child: TextField(
                                         controller: _priceEditController,
+                                        focusNode: _priceEditFocusNode,
                                         autofocus: true,
                                         keyboardType:
                                             const TextInputType.numberWithOptions(

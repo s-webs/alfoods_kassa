@@ -26,7 +26,6 @@ class RealtimeService {
   Client? _client;
   Subscription? _ordersSub;
   Subscription? _tasksSub;
-  StreamSubscription<ServerPublicationEvent>? _pubSub;
   final _notificationController = StreamController<RealtimeNotification>.broadcast();
 
   /// Stream of push notifications (orders and tasks).
@@ -76,7 +75,9 @@ class RealtimeService {
     _ordersSub = _client!.newSubscription('orders');
     _tasksSub = _client!.newSubscription('tasks');
 
-    _pubSub = _client!.publication.listen(_onPublication);
+    // Listen to subscription publications
+    _ordersSub!.publication.listen((event) => _onPublication('orders', event));
+    _tasksSub!.publication.listen((event) => _onPublication('tasks', event));
 
     try {
       await _client!.connect();
@@ -96,27 +97,56 @@ class RealtimeService {
     }
   }
 
-  void _onPublication(ServerPublicationEvent event) {
+  void _onPublication(String channel, PublicationEvent event) {
+    if (kDebugMode) {
+      print('📨 RealtimeService: received event on channel $channel');
+      print('   Raw data length: ${event.data.length} bytes');
+    }
     try {
       final json = utf8.decode(event.data);
+      if (kDebugMode) {
+        print('   Decoded JSON: $json');
+      }
       final data = jsonDecode(json) as Map<String, dynamic>?;
-      if (data == null) return;
+      if (data == null) {
+        if (kDebugMode) {
+          print('   ⚠️ Data is null after JSON decode');
+        }
+        return;
+      }
       final eventType = data['event'] as String?;
       final id = data['id'];
       final status = data['status'] as String?;
 
-      if (event.channel == 'orders') {
-        final message = _orderMessage(eventType, id, status);
+      // Extract simple event name from Laravel format (e.g., "task.created" -> "created")
+      String? simpleEvent;
+      if (eventType != null) {
+        final parts = eventType.split('.');
+        simpleEvent = parts.length > 1 ? parts.last : eventType;
+      }
+
+      if (kDebugMode) {
+        print('   Event type: $eventType (simple: $simpleEvent), ID: $id, Status: $status');
+      }
+
+      if (channel == 'orders') {
+        final message = _orderMessage(simpleEvent, id, status);
         if (message != null) {
+          if (kDebugMode) {
+            print('   ✅ Adding order notification: $message');
+          }
           _notificationController.add(RealtimeNotification(
             type: 'order',
             message: message,
             data: data,
           ));
         }
-      } else if (event.channel == 'tasks') {
-        final message = _taskMessage(eventType, id, status, data['title'] as String?);
+      } else if (channel == 'tasks') {
+        final message = _taskMessage(simpleEvent, id, status, data['title'] as String?);
         if (message != null) {
+          if (kDebugMode) {
+            print('   ✅ Adding task notification: $message');
+          }
           _notificationController.add(RealtimeNotification(
             type: 'task',
             message: message,
@@ -124,42 +154,87 @@ class RealtimeService {
           ));
         }
       }
-    } catch (_) {
-      // ignore malformed
+    } catch (e, stack) {
+      if (kDebugMode) {
+        print('   ❌ Error parsing publication: $e');
+        print('   Stack: $stack');
+      }
+    }
+  }
+
+  static String _orderStatusLabel(String? status) {
+    if (status == null || status.isEmpty) return status ?? '';
+    switch (status) {
+      case 'new':
+        return 'новый';
+      case 'in_progress':
+        return 'в работе';
+      case 'completed':
+        return 'выполнен';
+      case 'cancelled':
+        return 'отменён';
+      default:
+        return status;
+    }
+  }
+
+  static String _taskStatusLabel(String? status) {
+    if (status == null || status.isEmpty) return status ?? '';
+    switch (status) {
+      case 'created':
+      case 'new':
+        return 'новая';
+      case 'in_progress':
+        return 'в работе';
+      case 'completed':
+      case 'done':
+        return 'выполнено';
+      case 'cancelled':
+        return 'отменено';
+      default:
+        return status;
     }
   }
 
   String? _orderMessage(String? eventType, dynamic id, String? status) {
-    final idStr = id != null ? '#$id' : '';
+    final numStr = id != null ? ' №$id' : '';
     switch (eventType) {
       case 'created':
-        return 'Новый заказ $idStr';
+        return 'Новый заказ$numStr';
       case 'updated':
-        return 'Заказ $idStr обновлён${status != null ? ' ($status)' : ''}';
+        if (status != null && status.isNotEmpty) {
+          final label = _orderStatusLabel(status);
+          return 'Статус заказа$numStr изменён на $label';
+        }
+        return 'Заказ$numStr обновлён';
       case 'cancelled':
-        return 'Заказ $idStr отменён';
+        return 'Заказ$numStr отменён';
       default:
-        return 'Заказ $idStr';
+        return 'Заказ$numStr';
     }
   }
 
   String? _taskMessage(String? eventType, dynamic id, String? status, String? title) {
+    final numStr = id != null ? ' №$id' : '';
+    final titlePart = (title != null && title.isNotEmpty) ? ': $title' : '';
     switch (eventType) {
       case 'created':
-        return title != null && title.isNotEmpty ? 'Новая задача: $title' : 'Новая задача #$id';
+        return 'Создана задача$numStr$titlePart';
       case 'updated':
-        return title != null && title.isNotEmpty ? 'Задача обновлена: $title' : 'Задача #$id обновлена';
+        if (status != null && status.isNotEmpty) {
+          final label = _taskStatusLabel(status);
+          return 'Статус задачи$numStr изменён на $label$titlePart';
+        }
+        return 'Обновлена задача$numStr$titlePart';
       case 'deleted':
-        return 'Задача #$id удалена';
+        return 'Удалена задача$numStr$titlePart';
       default:
-        return 'Задача #$id';
+        return 'Задача$numStr';
     }
   }
 
   /// Disconnect and unsubscribe. Safe to call multiple times.
   Future<void> disconnect() async {
-    await _pubSub?.cancel();
-    _pubSub = null;
     if (_ordersSub != null) {
       await _client?.removeSubscription(_ordersSub!);
       _ordersSub = null;

@@ -30,6 +30,7 @@ import 'screens/tasks_screen.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'services/realtime_service.dart';
+import 'services/time_sync_service.dart';
 
 class App extends StatelessWidget {
   const App({
@@ -38,12 +39,14 @@ class App extends StatelessWidget {
     required this.apiService,
     required this.realtimeService,
     required this.notificationService,
+    required this.timeSyncService,
   });
 
   final Storage storage;
   final ApiService apiService;
   final RealtimeService realtimeService;
   final NotificationService notificationService;
+  final TimeSyncService timeSyncService;
 
   @override
   Widget build(BuildContext context) {
@@ -317,6 +320,7 @@ class App extends StatelessWidget {
                 return NoTransitionPage(
                   child: OrderDetailScreen(
                     apiService: apiService,
+                    storage: storage,
                     orderId: id,
                   ),
                 );

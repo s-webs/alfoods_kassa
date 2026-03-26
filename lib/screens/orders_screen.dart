@@ -7,6 +7,7 @@ import '../core/theme.dart';
 import '../models/order.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
+import '../utils/time_util.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({
@@ -301,6 +302,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 );
                               }
                               final order = _orders[index];
+                              final created =
+                                  TimeUtil.toUtcPlus5Wall(order.createdAt);
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
@@ -311,7 +314,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                       color: AppColors.primary,
                                     ),
                                   ),
-                                  title: Text('#${order.id} · ${order.createdAt.toString().substring(0, 16)}'),
+                                  title: Text(
+                                    '#${order.id} · ${created.toString().substring(0, 16)}',
+                                  ),
                                   subtitle: Text(
                                     '${order.user?.name ?? "—"} · ${order.total.toStringAsFixed(2)} · ${order.statusLabel}',
                                     style: TextStyle(

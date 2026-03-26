@@ -60,12 +60,21 @@ class ReceiptPrinterService {
     );
   }
 
+  static String _formatQty(double qty) {
+    final rounded = qty.roundToDouble();
+    if ((qty - rounded).abs() < 1e-9) return rounded.toInt().toString();
+    // Печатаем 2 знака и убираем хвостовые нули/точку.
+    final s = qty.toStringAsFixed(2);
+    return s.replaceAll(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  }
+
   /// Формирует ESC/POS байты чека для печати на 80мм.
   static List<int> buildReceipt({
     required int saleId,
     required String cashierName,
     required List<CartItem> items,
     required double total,
+    required double totalQty,
     required DateTime dateTime,
   }) {
     final generator = WPESCPOSGenerator(paperSize: WPPaperSize.mm80);
@@ -122,7 +131,11 @@ class ReceiptPrinterService {
           );
         } else {
           generator.text(
-            _padRight('', colNo) + namePart + _padRight('', colQty) + _padRight('', colPrice) + _padRight('', colSum),
+            _padRight('', colNo) +
+                namePart +
+                _padRight('', colQty) +
+                _padRight('', colPrice) +
+                _padRight('', colSum),
             style: const WPTextStyle(bold: true, align: WPTextAlign.left),
           );
         }
@@ -130,6 +143,16 @@ class ReceiptPrinterService {
     }
 
     generator.separator();
+    // После линии: "К-ВО" и значение под колонкой количества.
+    final totalQtyStr = _formatQty(totalQty);
+    generator.text(
+      _padRight('', colNo) +
+          _padRight('ОБЩЕЕ КОЛИЧЕСТВО', colName) +
+          _padRight(totalQtyStr, colQty) +
+          _padRight('', colPrice) +
+          _padRight('', colSum),
+      style: const WPTextStyle(bold: true, align: WPTextAlign.left),
+    );
     final totalStr = _formatSum(total);
     generator.text(
       'ИТОГО' + _padLeft(totalStr, _lineWidth - 5),
@@ -138,7 +161,10 @@ class ReceiptPrinterService {
     final dtStr =
         '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
         '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
-    generator.text(dtStr, style: const WPTextStyle(bold: true, align: WPTextAlign.left));
+    generator.text(
+      dtStr,
+      style: const WPTextStyle(bold: true, align: WPTextAlign.left),
+    );
     generator.text(
       _center('Спасибо за покупку!', _lineWidth),
       style: const WPTextStyle(bold: true, align: WPTextAlign.center),
@@ -161,6 +187,7 @@ class ReceiptPrinterService {
     required String cashierName,
     required List<CartItem> items,
     required double total,
+    required double totalQty,
     required DateTime dateTime,
   }) async {
     if (printMode == 'pdf_direct') {
@@ -170,6 +197,7 @@ class ReceiptPrinterService {
         cashierName: cashierName,
         items: items,
         total: total,
+        totalQty: totalQty,
         dateTime: dateTime,
       );
       final success = await PdfPrinterPlugin.printPdf(
@@ -186,15 +214,15 @@ class ReceiptPrinterService {
         cashierName: cashierName,
         items: items,
         total: total,
+        totalQty: totalQty,
         dateTime: dateTime,
       );
-      await Printing.layoutPdf(
-        onLayout: (format) async => pdfBytes,
-      );
+      await Printing.layoutPdf(onLayout: (format) async => pdfBytes);
     } else {
       // RAW печать (по умолчанию)
       final printers = await WindowsPrinter.getAvailablePrinters();
-      final name = printerName != null &&
+      final name =
+          printerName != null &&
               printerName.isNotEmpty &&
               printers.contains(printerName)
           ? printerName

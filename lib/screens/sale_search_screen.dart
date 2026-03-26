@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
 import '../models/sale.dart';
 import '../services/api_service.dart';
+import '../utils/time_util.dart';
 
 class SaleSearchScreen extends StatefulWidget {
   const SaleSearchScreen({
@@ -89,8 +90,9 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
   }
 
   String _formatDate(DateTime dt) {
-    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year} '
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final t = TimeUtil.toUtcPlus5Wall(dt);
+    return '${t.day.toString().padLeft(2, '0')}.${t.month.toString().padLeft(2, '0')}.${t.year} '
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   }
 
   Future<void> _pickDate(bool isFrom) async {

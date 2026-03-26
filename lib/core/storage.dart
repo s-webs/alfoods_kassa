@@ -16,6 +16,8 @@ class Storage {
   static const _keyEntrepreneurBin = 'entrepreneur_bin';
   static const _keyEntrepreneurManager = 'entrepreneur_manager';
   static const _keyEntrepreneurAddress = 'entrepreneur_address';
+  static const _keyTimeOffsetMs = 'time_offset_ms';
+  static const _keyTimeLastSyncMs = 'time_last_sync_ms';
 
   final SharedPreferences _prefs;
 
@@ -149,6 +151,12 @@ class Storage {
       await _prefs.setString(_keyEntrepreneurAddress, value);
     }
   }
+
+  int get timeOffsetMs => _prefs.getInt(_keyTimeOffsetMs) ?? 0;
+  Future<void> setTimeOffsetMs(int value) => _prefs.setInt(_keyTimeOffsetMs, value);
+
+  int? get timeLastSyncMs => _prefs.getInt(_keyTimeLastSyncMs);
+  Future<void> setTimeLastSyncMs(int value) => _prefs.setInt(_keyTimeLastSyncMs, value);
 
   Future<void> clearAuth() async {
     await _prefs.remove(_keyToken);
