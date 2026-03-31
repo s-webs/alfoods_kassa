@@ -500,8 +500,8 @@ class LabelPdfService {
                 child: pw.Text(
                   desc,
                   style: pw.TextStyle(fontSize: style.descriptionFontSize),
-                  maxLines: 3,
-                  overflow: pw.TextOverflow.clip,
+                  maxLines: null,
+                  overflow: pw.TextOverflow.visible,
                 ),
               ),
             );

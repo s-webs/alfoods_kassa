@@ -14,6 +14,7 @@ import '../models/sale.dart';
 import '../models/shift.dart';
 import '../models/task.dart';
 import '../models/user.dart';
+import '../utils/time_util.dart';
 
 /// Result of resolving a barcode: either a product or a set.
 class BarcodeResolveResult {
@@ -104,14 +105,25 @@ class ApiService {
   }
 
   Future<Shift> createShift() async {
-    // Время открытия смены берём с сервера (не отправляем opened_at с клиента).
-    final response = await _apiClient.dio.post('api/shifts');
+    // API требует `opened_at`; шлём синхронизированное время в ISO с +05:00 (как при закрытии).
+    final response = await _apiClient.dio.post(
+      'api/shifts',
+      data: <String, dynamic>{
+        'opened_at': TimeUtil.isoUtcPlus5FromUtc(TimeUtil.syncedUtcNow()),
+      },
+    );
     return Shift.fromJson(response.data as Map<String, dynamic>);
   }
 
   Future<Shift> closeShift(int shiftId) async {
-    // Время закрытия смены берём с сервера (не отправляем closed_at с клиента).
-    final response = await _apiClient.dio.patch('api/shifts/$shiftId');
+    // API ожидает `closed_at` в теле. В ISO с `Z` сервер/БД часто показывают «сырой» UTC;
+    // для бизнес-времени UTC+5 шлём тот же инстант с явным смещением +05:00.
+    final response = await _apiClient.dio.patch(
+      'api/shifts/$shiftId',
+      data: <String, dynamic>{
+        'closed_at': TimeUtil.isoUtcPlus5FromUtc(TimeUtil.syncedUtcNow()),
+      },
+    );
     return Shift.fromJson(response.data as Map<String, dynamic>);
   }
 
