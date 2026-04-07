@@ -8,20 +8,22 @@ import '../models/cart_item.dart';
 class CashierState extends ChangeNotifier {
   final List<CartItem> _cart = [];
   int? _lastSavedSaleId;
+  bool _saleNeedsSync = false;
   int _nextOrderIndex = 1;
 
   List<CartItem> get cart => _cart;
   int? get lastSavedSaleId => _lastSavedSaleId;
+  bool get saleNeedsSync => _saleNeedsSync;
 
   void addItem(CartItem item) {
-    _lastSavedSaleId = null;
+    _saleNeedsSync = true;
     final indexed = item.copyWith(orderIndex: _nextOrderIndex++);
     _cart.insert(0, indexed);
     notifyListeners();
   }
 
   void addOrIncrementQuantity(int productId, double step, CartItem newItem, {int? setId}) {
-    _lastSavedSaleId = null;
+    _saleNeedsSync = true;
     final i = _cart.indexWhere((c) {
       if (setId != null) {
         return c.setId == setId;
@@ -39,14 +41,14 @@ class CashierState extends ChangeNotifier {
 
   void removeAt(int index) {
     if (index < 0 || index >= _cart.length) return;
-    _lastSavedSaleId = null;
+    _saleNeedsSync = true;
     _cart.removeAt(index);
     notifyListeners();
   }
 
   void updateQuantityAt(int index, double value) {
     if (index < 0 || index >= _cart.length) return;
-    _lastSavedSaleId = null;
+    _saleNeedsSync = true;
     if (value <= 0) {
       _cart.removeAt(index);
     } else {
@@ -57,14 +59,14 @@ class CashierState extends ChangeNotifier {
 
   void updateNameAt(int index, String name) {
     if (index < 0 || index >= _cart.length) return;
-    _lastSavedSaleId = null;
+    _saleNeedsSync = true;
     _cart[index].name = name;
     notifyListeners();
   }
 
   void updatePriceAt(int index, double price) {
     if (index < 0 || index >= _cart.length) return;
-    _lastSavedSaleId = null;
+    _saleNeedsSync = true;
     _cart[index].price = price;
     notifyListeners();
   }
@@ -72,12 +74,14 @@ class CashierState extends ChangeNotifier {
   void setLastSavedSaleId(int? id) {
     if (_lastSavedSaleId == id) return;
     _lastSavedSaleId = id;
+    _saleNeedsSync = false;
     notifyListeners();
   }
 
   void clearCart() {
     _cart.clear();
     _lastSavedSaleId = null;
+    _saleNeedsSync = false;
     _nextOrderIndex = 1;
     notifyListeners();
   }
@@ -86,7 +90,7 @@ class CashierState extends ChangeNotifier {
 
   /// Вызвать после изменения элемента корзины «на месте» (например, quantity через +/-).
   void notifyCartChanged() {
-    _lastSavedSaleId = null;
+    _saleNeedsSync = true;
     notifyListeners();
   }
 }

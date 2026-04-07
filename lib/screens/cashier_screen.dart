@@ -980,9 +980,9 @@ class _CashierScreenState extends State<CashierScreen> {
       _error = null;
     });
     try {
-      if (state.lastSavedSaleId == null) {
-        final items = state.cart.map((c) => c.toJson()).toList();
-        await widget.apiService.createSale(shiftId: shift.id, items: items);
+      final saleId = await _ensureSaleSaved();
+      if (saleId == null) {
+        throw Exception('Не удалось сохранить продажу');
       }
       if (!mounted) return;
       state.clearCart();
@@ -1033,9 +1033,19 @@ class _CashierScreenState extends State<CashierScreen> {
       _error = null;
     });
     try {
+      final items = state.cart.map((c) => c.toJson()).toList();
       if (state.lastSavedSaleId == null) {
-        final items = state.cart.map((c) => c.toJson()).toList();
-        await widget.apiService.createSale(
+        final sale = await widget.apiService.createSale(
+          shiftId: shift.id,
+          items: items,
+          counterpartyId: creditResult.counterpartyId,
+          isOnCredit: true,
+        );
+        if (!mounted) return;
+        state.setLastSavedSaleId(sale.id);
+      } else {
+        await widget.apiService.updateSale(
+          state.lastSavedSaleId!,
           shiftId: shift.id,
           items: items,
           counterpartyId: creditResult.counterpartyId,
@@ -1159,13 +1169,18 @@ class _CashierScreenState extends State<CashierScreen> {
     final state = CashierStateScope.of(context);
     final shift = _currentOpenShift;
     if (shift == null || state.cart.isEmpty) return null;
-    if (state.lastSavedSaleId != null) return state.lastSavedSaleId;
+    if (state.lastSavedSaleId != null && !state.saleNeedsSync) {
+      return state.lastSavedSaleId;
+    }
     try {
       final items = state.cart.map((c) => c.toJson()).toList();
-      final sale = await widget.apiService.createSale(
-        shiftId: shift.id,
-        items: items,
-      );
+      final sale = state.lastSavedSaleId == null
+          ? await widget.apiService.createSale(shiftId: shift.id, items: items)
+          : await widget.apiService.updateSale(
+              state.lastSavedSaleId!,
+              shiftId: shift.id,
+              items: items,
+            );
       if (!mounted) return null;
       state.setLastSavedSaleId(sale.id);
       return sale.id;

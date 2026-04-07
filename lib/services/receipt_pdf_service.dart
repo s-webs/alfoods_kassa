@@ -9,6 +9,11 @@ import '../models/cart_item.dart';
 /// Формирует чек в формате PDF (80мм по ширине) для сохранения в файл.
 class ReceiptPdfService {
   static const String _companyName = 'Almaty Foods';
+  // MultiPage требует конечную высоту страницы (roll80 имеет infinity).
+  static final PdfPageFormat _receiptPageFormat = PdfPageFormat(
+    PdfPageFormat.roll80.width,
+    500 * PdfPageFormat.mm,
+  );
 
   static String _formatSum(double v) {
     final s = v.toStringAsFixed(0);
@@ -61,14 +66,11 @@ class ReceiptPdfService {
         '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
 
     pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.roll80,
+      pw.MultiPage(
+        pageFormat: _receiptPageFormat,
         margin: const pw.EdgeInsets.all(12),
         build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            mainAxisSize: pw.MainAxisSize.min,
-            children: [
+          return [
               pw.Text(
                 _companyName,
                 style: pw.TextStyle(
@@ -367,8 +369,7 @@ class ReceiptPdfService {
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
-            ],
-          );
+          ];
         },
       ),
     );

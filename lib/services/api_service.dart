@@ -314,12 +314,16 @@ class ApiService {
     int? cashierId,
     int? shiftId,
     int? shopperId,
+    int? counterpartyId,
+    bool? isOnCredit,
     List<Map<String, dynamic>>? items,
   }) async {
     final data = <String, dynamic>{};
     if (cashierId != null) data['cashier_id'] = cashierId;
     if (shiftId != null) data['shift_id'] = shiftId;
     if (shopperId != null) data['shopper_id'] = shopperId;
+    if (counterpartyId != null) data['counterparty_id'] = counterpartyId;
+    if (isOnCredit != null) data['is_on_credit'] = isOnCredit;
     if (items != null) data['items'] = items;
 
     final response = await _apiClient.dio.patch(

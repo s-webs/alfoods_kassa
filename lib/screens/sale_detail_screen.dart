@@ -156,6 +156,16 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   double get _itemsTotal =>
       _items.fold(0, (sum, item) => sum + item.total);
 
+  double get _itemsTotalQty =>
+      _items.fold<double>(0, (sum, item) => sum + item.quantity);
+
+  static String _formatTotalQty(double qty) {
+    final rounded = qty.roundToDouble();
+    if ((qty - rounded).abs() < 1e-9) return rounded.toInt().toString();
+    final s = qty.toStringAsFixed(2);
+    return s.replaceAll(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  }
+
   void _updateQuantity(int index, double delta) {
     setState(() {
       final item = _items[index];
@@ -574,7 +584,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     try {
       final dateTime =
           TimeUtil.toUtcPlus5Wall(_sale?.createdAt ?? DateTime.now());
-      final totalQty = _items.fold<double>(0, (sum, item) => sum + item.quantity);
+      final totalQty = _itemsTotalQty;
       final bytes = ReceiptPrinterService.buildReceipt(
         saleId: widget.saleId,
         cashierName: cashierName,
@@ -614,7 +624,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     final cashiersMatch = _cashiers.where((c) => c.id == _selectedCashierId).toList();
     final cashierName = cashiersMatch.isNotEmpty ? cashiersMatch.first.name : '—';
     try {
-      final totalQty = _items.fold<double>(0, (sum, item) => sum + item.quantity);
+      final totalQty = _itemsTotalQty;
       final dateTime =
           TimeUtil.toUtcPlus5Wall(_sale?.createdAt ?? DateTime.now());
       final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
@@ -996,6 +1006,27 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                       );
                     }),
                     const Divider(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Общее количество',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          _formatTotalQty(_itemsTotalQty),
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [

@@ -260,7 +260,7 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
                                         children: [
                                           Expanded(
                                             child: Text(
-                                              '№${sale.id} • ${_formatDate(sale.createdAt)}',
+                                              '№${sale.id} • ${_formatDate(sale.createdAt)} • к-во: ${sale.totalQty}',
                                               style: TextStyle(
                                                 color: AppColors.muted,
                                                 fontSize: 12,
