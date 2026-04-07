@@ -13,6 +13,7 @@ class Product {
   final String unit;
   final bool isActive;
   final Map<String, dynamic>? meta;
+  final List<String>? images;
 
   const Product({
     required this.id,
@@ -29,6 +30,7 @@ class Product {
     this.unit = 'pcs',
     this.isActive = true,
     this.meta,
+    this.images,
   });
 
   static double _parseDouble(dynamic v) {
@@ -45,6 +47,10 @@ class Product {
     } else if (metaRaw is Map) {
       meta = Map<String, dynamic>.from(metaRaw as Map);
     }
+    final imagesRaw = json['images'] as List<dynamic>?;
+    final images = imagesRaw != null
+        ? imagesRaw.map((e) => e.toString()).toList()
+        : null;
     return Product(
       id: json['id'] as int,
       categoryId: json['category_id'] as int?,
@@ -62,6 +68,7 @@ class Product {
       unit: json['unit'] as String? ?? 'pcs',
       isActive: json['is_active'] == null ? true : json['is_active'] as bool,
       meta: meta,
+      images: images,
     );
   }
 
@@ -86,6 +93,9 @@ class Product {
     map['is_active'] = isActive;
     if (meta != null) {
       map['meta'] = meta;
+    }
+    if (images != null) {
+      map['images'] = images;
     }
     return map;
   }

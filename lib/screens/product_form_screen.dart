@@ -73,6 +73,8 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   bool _isSavingPriceTag = false;
   bool _isPrintingLabel = false;
   bool _isPrintingPriceTag = false;
+  List<String> _images = [];
+  bool _isUploadingImages = false;
 
   static const List<String> _units = ['pcs', 'g'];
   static const double _minLabelSizeMm = 10;
@@ -323,6 +325,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
           _priceTagWidthMm = priceTagTpl.widthMm;
           _priceTagHeightMm = priceTagTpl.heightMm;
           _priceTagStyle = priceTagTpl.style;
+          _images = List<String>.from(p.images ?? []);
           _isLoading = false;
         });
         _refreshBarcodePreview();
@@ -459,6 +462,8 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       if (dp != null && dp > 0) {
         data['discount_price'] = dp;
       }
+      // Всегда передаём images: иначе при пустом списке поле не уходит в PATCH и сервер оставляет старые фото.
+      data['images'] = List<String>.from(_images);
       final desc = _labelDescriptionController.text.trim();
       if (desc.isNotEmpty) {
         data['meta'] = {'description': desc};
@@ -483,6 +488,45 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
             : 'Не удалось сохранить';
       });
     }
+  }
+
+  Future<void> _pickAndUploadImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    if (result == null || result.files.isEmpty || !mounted) return;
+    setState(() => _isUploadingImages = true);
+    try {
+      for (final f in result.files) {
+        final path = f.path;
+        if (path == null || path.isEmpty) continue;
+        final p = await widget.apiService.uploadProductImage(path, filename: f.name);
+        if (!mounted) return;
+        setState(() => _images.add(p));
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() => _images.removeAt(index));
+  }
+
+  void _moveImage(int index, int delta) {
+    final newIndex = index + delta;
+    if (newIndex < 0 || newIndex >= _images.length) return;
+    setState(() {
+      final item = _images.removeAt(index);
+      _images.insert(newIndex, item);
+    });
+  }
+
+  String _imageUrl(String path) {
+    return widget.apiService.fileUrl(path);
   }
 
   Future<void> _delete() async {
@@ -705,6 +749,96 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                   hintText: '0',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 16),
+              const Text('Фотографии', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  ..._images.asMap().entries.map((entry) {
+                    final i = entry.key;
+                    final path = entry.value;
+                    return Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.muted),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(7),
+                            child: Image.network(
+                              path.startsWith('http') ? path : _imageUrl(path),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  Icon(Icons.broken_image, color: AppColors.muted),
+                            ),
+                          ),
+                          Positioned(
+                            top: 2,
+                            right: 2,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (i > 0)
+                                  GestureDetector(
+                                    onTap: () => _moveImage(i, -1),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      color: Colors.black54,
+                                      child: const Icon(Icons.arrow_upward, size: 16, color: Colors.white),
+                                    ),
+                                  ),
+                                if (i < _images.length - 1)
+                                  GestureDetector(
+                                    onTap: () => _moveImage(i, 1),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      color: Colors.black54,
+                                      child: const Icon(Icons.arrow_downward, size: 16, color: Colors.white),
+                                    ),
+                                  ),
+                                GestureDetector(
+                                  onTap: () => _removeImage(i),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    color: Colors.black54,
+                                    child: const Icon(Icons.close, size: 16, color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  if (!_isUploadingImages)
+                    GestureDetector(
+                      onTap: _pickAndUploadImages,
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.muted),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.add_photo_alternate, size: 32, color: AppColors.muted),
+                      ),
+                    )
+                  else
+                    const SizedBox(
+                      width: 80,
+                      height: 80,
+                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    ),
+                ],
               ),
               const SizedBox(height: 16),
               Row(

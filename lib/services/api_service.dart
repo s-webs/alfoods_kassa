@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../core/api_client.dart';
 import '../core/storage.dart';
+import 'image_optimizer.dart';
 import '../models/category.dart';
 import '../models/cashier.dart';
 import '../models/counterparty.dart';
@@ -148,6 +149,30 @@ class ApiService {
 
   Future<void> deleteCategory(int id) async {
     await _apiClient.dio.delete('api/categories/$id');
+  }
+
+  /// Полный URL по пути (например `/files/products/xxx.webp`).
+  String fileUrl(String path) {
+    final base = _storage.baseUrl ?? '';
+    final url = base.endsWith('/') ? base : '$base/';
+    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    return '$url$cleanPath';
+  }
+
+  /// Загрузка изображения товара. Возвращает путь вида `/files/products/xxx.webp`.
+  Future<String> uploadProductImage(String filePath, {String? filename}) async {
+    final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final optimized = await ImageOptimizer.optimizeFile(filePath);
+    final formData = FormData.fromMap({
+      'file': optimized != null
+          ? MultipartFile.fromBytes(optimized.bytes, filename: optimized.filename)
+          : await MultipartFile.fromFile(filePath, filename: name),
+    });
+    final response = await _apiClient.dio.post(
+      'api/upload/product-image',
+      data: formData,
+    );
+    return response.data['path'] as String;
   }
 
   Future<List<Category>> getCategories({bool? active}) async {
