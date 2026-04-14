@@ -210,7 +210,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Тип печати',
                       border: OutlineInputBorder(),
-                      helperText: 'RAW - прямая печать на термопринтер, PDF - через диалог, PDF Direct - прямая печать без диалога',
+                      helperText:
+                          'RAW — самый чёткий текст на 80 мм (ESC/POS). PDF — диалог Windows (задайте размер бумаги 80 мм и масштаб «реальный размер»). PDF Direct — без диалога через Sumatra (noscale, monochrome); в свойствах принтера укажите ширину ленты 80 мм.',
                     ),
                     items: const [
                       DropdownMenuItem(
@@ -293,7 +294,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Принтер для печати',
                         border: OutlineInputBorder(),
-                        helperText: 'Выберите принтер для прямой печати PDF (null = принтер по умолчанию)',
+                        helperText:
+                            'Прямая печать PDF без диалога (Sumatra: без масштабирования). Пустой пункт — принтер по умолчанию. Если чек размыт или обрезан, в Windows задайте для принтера формат 80 мм или переключитесь на RAW.',
                       ),
                       items: [
                         const DropdownMenuItem(
@@ -316,7 +318,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     )
                   else
                     Text(
-                      'При печати будет открыт системный диалог выбора принтера.',
+                      'При печати откроется диалог Windows: выберите принтер 80 мм, масштаб «реальный размер» / 100 %, минимальные поля. Для максимальной чёткости используйте режим RAW.',
                       style: TextStyle(
                         color: AppColors.muted,
                         fontSize: 13,

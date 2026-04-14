@@ -203,6 +203,7 @@ class ReceiptPrinterService {
       final success = await PdfPrinterPlugin.printPdf(
         pdfBytes: pdfBytes,
         printerName: printerName,
+        printSettings: 'noscale,monochrome',
       );
       if (!success) {
         throw Exception('Не удалось отправить PDF на печать');

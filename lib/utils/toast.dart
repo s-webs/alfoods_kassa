@@ -2,11 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
 
+/// Акцентная рамка для toast о заказах (согласовано с подсветкой меню).
+const Color _orderToastAccent = Color(0xFF7C6FAD);
+
 /// Показывает toast-уведомление в правом верхнем углу.
-/// Автоматически закрывается через 2 секунды.
-void showToast(BuildContext context, String message) {
+/// По умолчанию закрывается через 2 секунды.
+void showToast(
+  BuildContext context,
+  String message, {
+  Duration? duration,
+  bool orderAccent = false,
+}) {
   final overlay = Overlay.of(context);
   late OverlayEntry entry;
+  final hideAfter = duration ?? const Duration(seconds: 2);
 
   entry = OverlayEntry(
     builder: (ctx) => Positioned(
@@ -23,6 +32,12 @@ void showToast(BuildContext context, String message) {
               decoration: BoxDecoration(
                 color: AppColors.surface.withValues(alpha: 0.95),
                 borderRadius: BorderRadius.circular(8),
+                border: orderAccent
+                    ? Border.all(
+                        color: _orderToastAccent.withValues(alpha: 0.9),
+                        width: 2,
+                      )
+                    : null,
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.2),
@@ -47,7 +62,7 @@ void showToast(BuildContext context, String message) {
 
   overlay.insert(entry);
 
-  Future.delayed(const Duration(seconds: 2), () {
+  Future.delayed(hideAfter, () {
     try {
       entry.remove();
     } catch (_) {}

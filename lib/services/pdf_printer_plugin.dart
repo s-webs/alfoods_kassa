@@ -15,11 +15,14 @@ class PdfPrinterPlugin {
   ///
   /// [pdfBytes] - байты PDF файла.
   /// [printerName] - имя принтера (null = принтер по умолчанию).
+  /// [printSettings] - строка для Sumatra `-print-settings`, например `noscale` или
+  /// `noscale,monochrome` (см. документацию SumatraPDF).
   ///
   /// Возвращает true если команда на печать успешно отправлена.
   static Future<bool> printPdf({
     required Uint8List pdfBytes,
     String? printerName,
+    String? printSettings,
   }) async {
     if (!Platform.isWindows) {
       throw UnsupportedError('Прямая печать PDF через Sumatra доступна только на Windows');
@@ -37,6 +40,10 @@ class PdfPrinterPlugin {
     final args = <String>[
       '-silent',
       '-exit-on-print',
+      if (printSettings != null && printSettings.trim().isNotEmpty) ...[
+        '-print-settings',
+        printSettings.trim(),
+      ],
       if (printerName != null && printerName.isNotEmpty) ...[
         '-print-to',
         printerName,

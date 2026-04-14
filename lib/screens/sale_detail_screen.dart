@@ -722,6 +722,11 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         actions: [
           if (!isReturned) ...[
             IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: 'Добавить позицию',
+              onPressed: _isSaving ? null : _addItemFromCatalog,
+            ),
+            IconButton(
               icon: const Icon(Icons.picture_as_pdf),
               tooltip: 'Сохранить в PDF',
               onPressed: _items.isEmpty ? null : _saveReceiptPdf,
@@ -1046,24 +1051,10 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                     ),
                     if (!isReturned) ...[
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: _isSaving ? null : _addItemFromCatalog,
-                              icon: const Icon(Icons.list, size: 20),
-                              label: const Text('Добавить позицию'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _isSaving ? null : _addArbitraryItem,
-                              icon: const Icon(Icons.edit_note, size: 20),
-                              label: const Text('Произвольный товар'),
-                            ),
-                          ),
-                        ],
+                      OutlinedButton.icon(
+                        onPressed: _isSaving ? null : _addArbitraryItem,
+                        icon: const Icon(Icons.edit_note, size: 20),
+                        label: const Text('Произвольный товар'),
                       ),
                     ],
                   ],
