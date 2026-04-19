@@ -45,7 +45,7 @@ class _CreditSaleDialogState extends State<CreditSaleDialog> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _counterpartyError = 'Не удалось загрузить контрагентов';
+        _counterpartyError = 'Не удалось загрузить покупателей';
         _loadingCounterparties = false;
       });
     }
@@ -63,7 +63,7 @@ class _CreditSaleDialogState extends State<CreditSaleDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Выберите контрагента для продажи в долг',
+              'Выберите покупателя для продажи в долг',
               style: TextStyle(fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 16),
@@ -89,14 +89,14 @@ class _CreditSaleDialogState extends State<CreditSaleDialog> {
                 DropdownButtonFormField<Counterparty?>(
                   value: _selectedCounterparty,
                   decoration: const InputDecoration(
-                    labelText: 'Контрагент *',
+                    labelText: 'Покупатель *',
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
                   items: [
                     const DropdownMenuItem(
                       value: null,
-                      child: Text('— Выберите контрагента —'),
+                      child: Text('— Выберите покупателя —'),
                     ),
                     ..._counterparties.map(
                       (c) => DropdownMenuItem(

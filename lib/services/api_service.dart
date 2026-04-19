@@ -13,6 +13,7 @@ import '../models/product_receipt.dart';
 import '../models/product_set.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
+import '../models/supplier.dart';
 import '../models/task.dart';
 import '../models/user.dart';
 import '../utils/time_util.dart';
@@ -170,6 +171,22 @@ class ApiService {
     });
     final response = await _apiClient.dio.post(
       'api/upload/product-image',
+      data: formData,
+    );
+    return response.data['path'] as String;
+  }
+
+  /// Загрузка изображения поступления. Возвращает путь вида /files/receipts/xxx.webp.
+  Future<String> uploadReceiptImage(String filePath, {String? filename}) async {
+    final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final optimized = await ImageOptimizer.optimizeFile(filePath);
+    final formData = FormData.fromMap({
+      'file': optimized != null
+          ? MultipartFile.fromBytes(optimized.bytes, filename: optimized.filename)
+          : await MultipartFile.fromFile(filePath, filename: name),
+    });
+    final response = await _apiClient.dio.post(
+      'api/upload/receipt-image',
       data: formData,
     );
     return response.data['path'] as String;
@@ -407,6 +424,34 @@ class ApiService {
     await _apiClient.dio.delete('api/counterparties/$id');
   }
 
+  // Suppliers
+  Future<List<Supplier>> getSuppliers() async {
+    final response = await _apiClient.dio.get('api/suppliers');
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => Supplier.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<Supplier> getSupplier(int id) async {
+    final response = await _apiClient.dio.get('api/suppliers/$id');
+    return Supplier.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Supplier> createSupplier(Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.post('api/suppliers', data: data);
+    return Supplier.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Supplier> updateSupplier(int id, Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.patch('api/suppliers/$id', data: data);
+    return Supplier.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteSupplier(int id) async {
+    await _apiClient.dio.delete('api/suppliers/$id');
+  }
+
   // Product Receipts
   Future<List<ProductReceipt>> getProductReceipts() async {
     final response = await _apiClient.dio.get('api/product-receipts');
@@ -422,28 +467,34 @@ class ApiService {
   }
 
   Future<ProductReceipt> createProductReceipt({
-    int? counterpartyId,
+    int? supplierId,
     String? supplierName,
     required List<Map<String, dynamic>> items,
+    List<String>? images,
   }) async {
     final data = <String, dynamic>{'items': items};
-    if (counterpartyId != null) data['counterparty_id'] = counterpartyId;
+    if (supplierId != null) data['supplier_id'] = supplierId;
     if (supplierName != null && supplierName.isNotEmpty) {
       data['supplier_name'] = supplierName;
+    }
+    if (images != null && images.isNotEmpty) {
+      data['images'] = images;
     }
     final response = await _apiClient.dio.post('api/product-receipts', data: data);
     return ProductReceipt.fromJson(response.data as Map<String, dynamic>);
   }
 
   Future<ProductReceipt> updateProductReceipt(int id, {
-    int? counterpartyId,
+    int? supplierId,
     String? supplierName,
     List<Map<String, dynamic>>? items,
+    List<String>? images,
   }) async {
     final data = <String, dynamic>{};
-    if (counterpartyId != null) data['counterparty_id'] = counterpartyId;
+    if (supplierId != null) data['supplier_id'] = supplierId;
     if (supplierName != null) data['supplier_name'] = supplierName;
     if (items != null) data['items'] = items;
+    if (images != null) data['images'] = images;
 
     final response = await _apiClient.dio.patch('api/product-receipts/$id', data: data);
     return ProductReceipt.fromJson(response.data as Map<String, dynamic>);

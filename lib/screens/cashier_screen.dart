@@ -41,7 +41,6 @@ class _CashierScreenState extends State<CashierScreen> {
   bool _isOpeningShift = false;
   bool _isClosingShift = false;
   bool _isSelling = false;
-  bool _isReturnMode = false;
   bool _isAcceptingReturn = false;
   String? _error;
   final FocusNode _barcodeFocusNode = FocusNode();
@@ -264,6 +263,24 @@ class _CashierScreenState extends State<CashierScreen> {
 
   void _removeFromCart(int index) {
     CashierStateScope.of(context).removeAt(index);
+    _refocusBarcodeField();
+  }
+
+  /// Переключение между параллельными кассами по вкладке.
+  ///
+  /// Перед переключением закрываем незавершённое in-place редактирование
+  /// (чтобы контроллеры не ссылались на индекс из другой корзины), затем
+  /// меняем активный регистр в состоянии и возвращаем фокус в поле сканера.
+  void _switchRegister(int index) {
+    final state = CashierStateScope.of(context);
+    if (index == state.activeIndex) return;
+    if (_editingNameIndex != null) {
+      _finishEditName(save: false);
+    }
+    if (_editingPriceIndex != null) {
+      _finishEditPrice(save: false);
+    }
+    state.setActiveIndex(index);
     _refocusBarcodeField();
   }
 
@@ -1024,7 +1041,7 @@ class _CashierScreenState extends State<CashierScreen> {
     if (creditResult == null) return; // User cancelled
 
     if (!creditResult.isOnCredit || creditResult.counterpartyId == null) {
-      showToast(context, 'Для продажи в долг необходимо выбрать контрагента');
+      showToast(context, 'Для продажи в долг необходимо выбрать покупателя');
       return;
     }
 
@@ -1072,7 +1089,7 @@ class _CashierScreenState extends State<CashierScreen> {
   Future<void> _resetCart() async {
     final state = CashierStateScope.of(context);
     if (state.cart.isEmpty) return;
-    if (_isReturnMode) {
+    if (state.isReturnMode) {
       state.clearCart();
       if (mounted) {
         showToast(context, 'Корзина очищена');
@@ -1321,9 +1338,10 @@ class _CashierScreenState extends State<CashierScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _buildRegisterTabs(context),
                 _buildShiftBlock(context),
                 if (_currentOpenShift != null) _buildTopActions(context),
-                if (_isReturnMode) _buildReturnModeBanner(context),
+                if (state.isReturnMode) _buildReturnModeBanner(context),
                 if (_error != null) _buildErrorBlock(context),
                 Expanded(child: _buildCartBlock(context)),
                 _buildActionBlock(context),
@@ -1352,6 +1370,104 @@ class _CashierScreenState extends State<CashierScreen> {
           ],
         );
       },
+    );
+  }
+
+  /// Вкладки переключения между параллельными кассами.
+  ///
+  /// На каждой вкладке: номер кассы, бейдж с количеством позиций в её корзине
+  /// и маленькая иконка, если в этой кассе сейчас режим возврата. Если у
+  /// приложения всего один регистр — блок просто не показывается.
+  Widget _buildRegisterTabs(BuildContext context) {
+    final state = CashierStateScope.of(context);
+    if (state.registerCount <= 1) return const SizedBox.shrink();
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: AppColors.muted.withValues(alpha: 0.4)),
+        ),
+      ),
+      child: Row(
+        children: [
+          for (int i = 0; i < state.registerCount; i++)
+            Expanded(child: _buildRegisterTab(state, i)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRegisterTab(CashierState state, int index) {
+    final isActive = index == state.activeIndex;
+    final itemCount = state.cartLengthAt(index);
+    final inReturn = state.registerIsReturnMode(index);
+    final activeColor = inReturn ? AppColors.accent : AppColors.primary;
+
+    return InkWell(
+      onTap: () => _switchRegister(index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isActive
+              ? AppColors.primaryLight.withValues(alpha: 0.5)
+              : Colors.transparent,
+          border: Border(
+            bottom: BorderSide(
+              color: isActive ? activeColor : Colors.transparent,
+              width: 2.5,
+            ),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.point_of_sale,
+              size: 18,
+              color: isActive ? activeColor : AppColors.muted,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Касса ${index + 1}',
+              style: TextStyle(
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                color: isActive ? activeColor : AppColors.surface,
+              ),
+            ),
+            if (itemCount > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: (isActive ? activeColor : AppColors.muted)
+                      .withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$itemCount',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isActive ? activeColor : AppColors.surface,
+                  ),
+                ),
+              ),
+            ],
+            if (inReturn) ...[
+              const SizedBox(width: 6),
+              Tooltip(
+                message: 'Режим возврата',
+                child: Icon(
+                  Icons.keyboard_return,
+                  size: 16,
+                  color: AppColors.accent,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -1452,36 +1568,32 @@ class _CashierScreenState extends State<CashierScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          if (_isReturnMode)
+          if (state.isReturnMode)
             OutlinedButton.icon(
               onPressed: _isAcceptingReturn
                   ? null
                   : () {
-                      setState(() {
-                        _isReturnMode = false;
-                        state.clearCart();
-                      });
+                      // clearCart() сам сбрасывает isReturnMode в false.
+                      state.clearCart();
                       _refocusBarcodeField();
                     },
               icon: const Icon(Icons.point_of_sale, size: 20),
               label: const Text('Продажа'),
             ),
-          if (_isReturnMode) const SizedBox(width: 12),
-          if (!_isReturnMode)
+          if (state.isReturnMode) const SizedBox(width: 12),
+          if (!state.isReturnMode)
             OutlinedButton.icon(
               onPressed: _isSelling
                   ? null
                   : () {
-                      setState(() {
-                        _isReturnMode = true;
-                        state.clearCart();
-                      });
+                      state.clearCart();
+                      state.setReturnMode(true);
                       _refocusBarcodeField();
                     },
               icon: const Icon(Icons.keyboard_return, size: 20),
               label: const Text('Принять возврат'),
             ),
-          if (!_isReturnMode) const SizedBox(width: 12),
+          if (!state.isReturnMode) const SizedBox(width: 12),
           FilledButton.icon(
             onPressed: !_isSelling && !_isAcceptingReturn
                 ? _showAddProductDialog
@@ -1738,11 +1850,11 @@ class _CashierScreenState extends State<CashierScreen> {
   Widget _buildActionBlock(BuildContext context) {
     final state = CashierStateScope.of(context);
     final cartNotEmpty = state.cart.isNotEmpty;
-    final showPrintPdf = cartNotEmpty && !_isReturnMode;
+    final showPrintPdf = cartNotEmpty && !state.isReturnMode;
     final isAcceptReturnEnabled =
-        _isReturnMode && cartNotEmpty && !_isAcceptingReturn;
+        state.isReturnMode && cartNotEmpty && !_isAcceptingReturn;
     final isSellEnabled =
-        !_isReturnMode &&
+        !state.isReturnMode &&
         _currentOpenShift != null &&
         cartNotEmpty &&
         !_isSelling;
@@ -1828,7 +1940,7 @@ class _CashierScreenState extends State<CashierScreen> {
             const SizedBox(width: 12),
           ],
           if (cartNotEmpty) ...[],
-          if (_isReturnMode)
+          if (state.isReturnMode)
             FilledButton.icon(
               onPressed: isAcceptReturnEnabled ? _acceptReturn : null,
               icon: _isAcceptingReturn

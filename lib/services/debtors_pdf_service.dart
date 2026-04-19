@@ -82,7 +82,7 @@ class DebtorsPdfService {
                       color: PdfColors.grey300,
                     ),
                     children: [
-                      _headerCell('Контрагент', 10),
+                      _headerCell('Покупатель', 10),
                       _headerCell('Сумма долга, ₸', 10),
                       _headerCell('Кол-во продаж', 10),
                       _headerCell('Последняя продажа', 10),

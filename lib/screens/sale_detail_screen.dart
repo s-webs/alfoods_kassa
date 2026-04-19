@@ -1088,7 +1088,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Контрагент: ${_counterparty!.name}',
+                        'Покупатель: ${_counterparty!.name}',
                         style: const TextStyle(fontWeight: FontWeight.w500),
                       ),
                       const SizedBox(height: 8),

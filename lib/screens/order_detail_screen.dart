@@ -249,6 +249,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           onPressed: () => context.pop(true),
         ),
         actions: [
+          if (canMarkIssued)
+            IconButton(
+              icon: _isUpdating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check_circle_outline),
+              tooltip: 'Выдан',
+              onPressed: _isUpdating ? null : _markIssued,
+            ),
           IconButton(
             icon: const Icon(Icons.picture_as_pdf),
             tooltip: 'Сохранить чек в PDF',

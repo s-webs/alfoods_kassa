@@ -27,6 +27,8 @@ import 'screens/settings_screen.dart';
 import 'screens/shift_sales_screen.dart';
 import 'screens/shifts_list_screen.dart';
 import 'screens/tasks_screen.dart';
+import 'screens/supplier_form_screen.dart';
+import 'screens/suppliers_screen.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'services/realtime_service.dart';
@@ -155,6 +157,34 @@ class App extends StatelessWidget {
                     apiService: apiService,
                     counterpartyId: id,
                     mode: CounterpartyFormMode.edit,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/suppliers',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: SuppliersScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/suppliers/create',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: SupplierFormScreen(
+                  apiService: apiService,
+                  mode: SupplierFormMode.create,
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/suppliers/:id/edit',
+              pageBuilder: (context, state) {
+                final id = int.tryParse(state.pathParameters['id'] ?? '');
+                return NoTransitionPage(
+                  child: SupplierFormScreen(
+                    apiService: apiService,
+                    supplierId: id,
+                    mode: SupplierFormMode.edit,
                   ),
                 );
               },

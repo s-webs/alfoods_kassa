@@ -71,6 +71,7 @@ flutter:
   # Assets used by the application.
   assets:
     - assets/SumatraPDF-3.5.2-64.exe
+    - assets/icon.jpg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

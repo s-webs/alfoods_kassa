@@ -130,7 +130,7 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _counterpartyError = 'Не удалось загрузить контрагентов';
+        _counterpartyError = 'Не удалось загрузить покупателей';
         _loadingCounterparties = false;
       });
     }
@@ -436,7 +436,7 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
                   DropdownButtonFormField<Counterparty?>(
                     value: _selectedCounterparty,
                     decoration: const InputDecoration(
-                      labelText: 'Контрагент (выберите для автозаполнения)',
+                      labelText: 'Покупатель (выберите для автозаполнения)',
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),

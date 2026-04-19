@@ -2,95 +2,187 @@ import 'package:flutter/material.dart';
 
 import '../models/cart_item.dart';
 
-/// Состояние кассы (корзина и id последней сохранённой продажи).
+/// Состояние одной параллельной кассы (корзина + флаги активной продажи).
+/// Служебная структура для [CashierState]; снаружи не используется напрямую.
+class RegisterCart {
+  final List<CartItem> cart = [];
+  int? lastSavedSaleId;
+  bool saleNeedsSync = false;
+  int nextOrderIndex = 1;
+  bool isReturnMode = false;
+}
+
+/// Состояние кассы (одной или нескольких параллельных).
+///
 /// Живёт в Shell и не сбрасывается при переходе на другие экраны.
-/// Новые товары вставляются в начало списка (сверху). orderIndex — постоянный номер (1, 2, 3...).
+/// Поддерживает несколько параллельных касс: например, кассир может отложить
+/// текущего покупателя, переключиться на «Кассу 2», быстро обслужить клиента
+/// с парой товаров и вернуться к первой корзине — состояние обеих сохранится.
+///
+/// Внешний API построен так, что бо́льшая часть методов работает с *активным*
+/// регистром. Старый код, написанный под одну корзину, продолжает работать
+/// без изменений — он просто оперирует активной кассой.
 class CashierState extends ChangeNotifier {
-  final List<CartItem> _cart = [];
-  int? _lastSavedSaleId;
-  bool _saleNeedsSync = false;
-  int _nextOrderIndex = 1;
+  CashierState({int registerCount = 2})
+      : assert(registerCount >= 1),
+        _registers = List.generate(registerCount, (_) => RegisterCart());
 
-  List<CartItem> get cart => _cart;
-  int? get lastSavedSaleId => _lastSavedSaleId;
-  bool get saleNeedsSync => _saleNeedsSync;
+  final List<RegisterCart> _registers;
+  int _activeIndex = 0;
 
-  void addItem(CartItem item) {
-    _saleNeedsSync = true;
-    final indexed = item.copyWith(orderIndex: _nextOrderIndex++);
-    _cart.insert(0, indexed);
+  // ---------------------------------------------------------------------------
+  // Управление активной кассой
+  // ---------------------------------------------------------------------------
+
+  /// Сколько параллельных касс всего.
+  int get registerCount => _registers.length;
+
+  /// Индекс активной кассы (0..registerCount-1).
+  int get activeIndex => _activeIndex;
+
+  /// Переключить активную кассу. Обе корзины при этом сохраняются.
+  void setActiveIndex(int index) {
+    if (index < 0 || index >= _registers.length) return;
+    if (_activeIndex == index) return;
+    _activeIndex = index;
     notifyListeners();
   }
 
-  void addOrIncrementQuantity(int productId, double step, CartItem newItem, {int? setId}) {
-    _saleNeedsSync = true;
-    final i = _cart.indexWhere((c) {
+  RegisterCart get _active => _registers[_activeIndex];
+
+  /// Количество позиций в корзине указанной кассы (для бейджа на вкладке).
+  int cartLengthAt(int index) {
+    if (index < 0 || index >= _registers.length) return 0;
+    return _registers[index].cart.length;
+  }
+
+  /// Сумма корзины указанной кассы (может пригодиться для бейджа/подсказки).
+  double cartTotalAt(int index) {
+    if (index < 0 || index >= _registers.length) return 0.0;
+    return _registers[index].cart.fold(0.0, (sum, it) => sum + it.total);
+  }
+
+  /// Включён ли режим возврата в указанной кассе.
+  bool registerIsReturnMode(int index) {
+    if (index < 0 || index >= _registers.length) return false;
+    return _registers[index].isReturnMode;
+  }
+
+  /// Есть ли хоть в одной из касс непустая корзина (например, для
+  /// предупреждения «есть незавершённые продажи»).
+  bool get hasAnyCartItems => _registers.any((r) => r.cart.isNotEmpty);
+
+  // ---------------------------------------------------------------------------
+  // API активной кассы (совместим с прежней однокассовой версией)
+  // ---------------------------------------------------------------------------
+
+  List<CartItem> get cart => _active.cart;
+  int? get lastSavedSaleId => _active.lastSavedSaleId;
+  bool get saleNeedsSync => _active.saleNeedsSync;
+
+  /// Включён ли режим возврата в активной кассе.
+  bool get isReturnMode => _active.isReturnMode;
+
+  /// Переключить режим возврата на активной кассе.
+  void setReturnMode(bool value) {
+    if (_active.isReturnMode == value) return;
+    _active.isReturnMode = value;
+    notifyListeners();
+  }
+
+  void addItem(CartItem item) {
+    final r = _active;
+    r.saleNeedsSync = true;
+    final indexed = item.copyWith(orderIndex: r.nextOrderIndex++);
+    r.cart.insert(0, indexed);
+    notifyListeners();
+  }
+
+  void addOrIncrementQuantity(
+    int productId,
+    double step,
+    CartItem newItem, {
+    int? setId,
+  }) {
+    final r = _active;
+    r.saleNeedsSync = true;
+    final i = r.cart.indexWhere((c) {
       if (setId != null) {
         return c.setId == setId;
       }
       return c.productId == productId;
     });
     if (i >= 0) {
-      _cart[i].quantity += step;
+      r.cart[i].quantity += step;
     } else {
-      final indexed = newItem.copyWith(orderIndex: _nextOrderIndex++);
-      _cart.insert(0, indexed);
+      final indexed = newItem.copyWith(orderIndex: r.nextOrderIndex++);
+      r.cart.insert(0, indexed);
     }
     notifyListeners();
   }
 
   void removeAt(int index) {
-    if (index < 0 || index >= _cart.length) return;
-    _saleNeedsSync = true;
-    _cart.removeAt(index);
+    final r = _active;
+    if (index < 0 || index >= r.cart.length) return;
+    r.saleNeedsSync = true;
+    r.cart.removeAt(index);
     notifyListeners();
   }
 
   void updateQuantityAt(int index, double value) {
-    if (index < 0 || index >= _cart.length) return;
-    _saleNeedsSync = true;
+    final r = _active;
+    if (index < 0 || index >= r.cart.length) return;
+    r.saleNeedsSync = true;
     if (value <= 0) {
-      _cart.removeAt(index);
+      r.cart.removeAt(index);
     } else {
-      _cart[index].quantity = value;
+      r.cart[index].quantity = value;
     }
     notifyListeners();
   }
 
   void updateNameAt(int index, String name) {
-    if (index < 0 || index >= _cart.length) return;
-    _saleNeedsSync = true;
-    _cart[index].name = name;
+    final r = _active;
+    if (index < 0 || index >= r.cart.length) return;
+    r.saleNeedsSync = true;
+    r.cart[index].name = name;
     notifyListeners();
   }
 
   void updatePriceAt(int index, double price) {
-    if (index < 0 || index >= _cart.length) return;
-    _saleNeedsSync = true;
-    _cart[index].price = price;
+    final r = _active;
+    if (index < 0 || index >= r.cart.length) return;
+    r.saleNeedsSync = true;
+    r.cart[index].price = price;
     notifyListeners();
   }
 
   void setLastSavedSaleId(int? id) {
-    if (_lastSavedSaleId == id) return;
-    _lastSavedSaleId = id;
-    _saleNeedsSync = false;
+    final r = _active;
+    if (r.lastSavedSaleId == id) return;
+    r.lastSavedSaleId = id;
+    r.saleNeedsSync = false;
     notifyListeners();
   }
 
+  /// Полностью очистить активную корзину (cart + lastSavedSaleId + возврат).
   void clearCart() {
-    _cart.clear();
-    _lastSavedSaleId = null;
-    _saleNeedsSync = false;
-    _nextOrderIndex = 1;
+    final r = _active;
+    r.cart.clear();
+    r.lastSavedSaleId = null;
+    r.saleNeedsSync = false;
+    r.nextOrderIndex = 1;
+    r.isReturnMode = false;
     notifyListeners();
   }
 
-  double get cartTotal => _cart.fold(0.0, (sum, item) => sum + item.total);
+  double get cartTotal =>
+      _active.cart.fold(0.0, (sum, item) => sum + item.total);
 
-  /// Вызвать после изменения элемента корзины «на месте» (например, quantity через +/-).
+  /// Вызвать после изменения элемента корзины «на месте» (например, quantity
+  /// через +/-), чтобы подписчики перерисовались и сработала синхронизация.
   void notifyCartChanged() {
-    _saleNeedsSync = true;
+    _active.saleNeedsSync = true;
     notifyListeners();
   }
 }

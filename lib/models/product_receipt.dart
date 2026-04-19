@@ -1,12 +1,13 @@
-import 'counterparty.dart';
+import 'supplier.dart';
 import 'sale_item.dart';
 
 class ProductReceipt {
   final int id;
-  final int? counterpartyId;
-  final Counterparty? counterparty;
+  final int? supplierId;
+  final Supplier? supplier;
   final String? supplierName;
   final List<SaleItem> items;
+  final List<String> images;
   final int totalQty;
   final double totalPrice;
   final DateTime createdAt;
@@ -14,10 +15,11 @@ class ProductReceipt {
 
   const ProductReceipt({
     required this.id,
-    this.counterpartyId,
-    this.counterparty,
+    this.supplierId,
+    this.supplier,
     this.supplierName,
     required this.items,
+    required this.images,
     required this.totalQty,
     required this.totalPrice,
     required this.createdAt,
@@ -25,18 +27,18 @@ class ProductReceipt {
   });
 
   String get supplierDisplayName =>
-      counterparty?.name ?? supplierName ?? 'Не указан';
+      supplier?.name ?? supplierName ?? 'Не указан';
 
   factory ProductReceipt.fromJson(Map<String, dynamic> json) {
     final itemsList = json['items'] as List<dynamic>?;
-    final counterpartyData = json['counterparty'];
+    final supplierData = json['supplier'];
     return ProductReceipt(
       id: _parseInt(json['id']),
-      counterpartyId: json['counterparty_id'] != null
-          ? _parseInt(json['counterparty_id'])
+      supplierId: json['supplier_id'] != null
+          ? _parseInt(json['supplier_id'])
           : null,
-      counterparty: counterpartyData != null
-          ? Counterparty.fromJson(counterpartyData as Map<String, dynamic>)
+      supplier: supplierData != null
+          ? Supplier.fromJson(supplierData as Map<String, dynamic>)
           : null,
       supplierName: json['supplier_name'] as String?,
       items: itemsList != null
@@ -44,6 +46,10 @@ class ProductReceipt {
               .map((e) => SaleItem.fromJson(e as Map<String, dynamic>))
               .toList()
           : [],
+      images: (json['images'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
       totalQty: _parseInt(json['total_qty']),
       totalPrice: _parseDouble(json['total_price']),
       createdAt: json['created_at'] != null
@@ -69,9 +75,10 @@ class ProductReceipt {
 
   Map<String, dynamic> toJson() {
     return {
-      'counterparty_id': counterpartyId,
       'supplier_name': supplierName,
+      'supplier_id': supplierId,
       'items': items.map((item) => item.toJson()).toList(),
+      'images': images,
     };
   }
 }

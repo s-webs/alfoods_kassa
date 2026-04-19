@@ -255,10 +255,17 @@ class _Sidebar extends StatelessWidget {
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.buildings,
-                  label: 'Контрагенты',
+                  label: 'Покупатели',
                   isSelected: currentLocation == '/counterparties' ||
                       currentLocation.startsWith('/counterparties/'),
                   onTap: () => context.go('/counterparties'),
+                ),
+                _NavItem(
+                  icon: PhosphorIconsRegular.truck,
+                  label: 'Поставщики',
+                  isSelected: currentLocation == '/suppliers' ||
+                      currentLocation.startsWith('/suppliers/'),
+                  onTap: () => context.go('/suppliers'),
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.package,
@@ -393,7 +400,7 @@ class _OnlineOrdersNavTile extends StatefulWidget {
 
 class _OnlineOrdersNavTileState extends State<_OnlineOrdersNavTile>
     with SingleTickerProviderStateMixin {
-  static const Color _accent = Color(0xFF2E9E5B);
+  static const Color _accent = Color(0xFF3B14AF);
 
   late final AnimationController _pulse;
 

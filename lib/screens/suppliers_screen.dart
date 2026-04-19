@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
-import '../models/counterparty.dart';
+import '../models/supplier.dart';
 import '../services/api_service.dart';
 
-class CounterpartiesScreen extends StatefulWidget {
-  const CounterpartiesScreen({
+class SuppliersScreen extends StatefulWidget {
+  const SuppliersScreen({
     super.key,
     required this.apiService,
   });
@@ -14,11 +14,11 @@ class CounterpartiesScreen extends StatefulWidget {
   final ApiService apiService;
 
   @override
-  State<CounterpartiesScreen> createState() => _CounterpartiesScreenState();
+  State<SuppliersScreen> createState() => _SuppliersScreenState();
 }
 
-class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
-  List<Counterparty> _counterparties = [];
+class _SuppliersScreenState extends State<SuppliersScreen> {
+  List<Supplier> _suppliers = [];
   bool _isLoading = true;
   String? _error;
 
@@ -34,27 +34,27 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
       _error = null;
     });
     try {
-      final list = await widget.apiService.getCounterparties();
+      final list = await widget.apiService.getSuppliers();
       if (!mounted) return;
       setState(() {
-        _counterparties = list;
+        _suppliers = list;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = 'Не удалось загрузить покупателей';
+        _error = 'Не удалось загрузить поставщиков';
         _isLoading = false;
       });
     }
   }
 
-  Future<void> _deleteCounterparty(Counterparty counterparty) async {
+  Future<void> _deleteSupplier(Supplier supplier) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Удалить покупателя?'),
-        content: Text('Покупатель «${counterparty.name}» будет удален безвозвратно.'),
+        title: const Text('Удалить поставщика?'),
+        content: Text('Поставщик «${supplier.name}» будет удален безвозвратно.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -70,10 +70,10 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
     );
     if (confirm != true || !mounted) return;
     try {
-      await widget.apiService.deleteCounterparty(counterparty.id);
+      await widget.apiService.deleteSupplier(supplier.id);
       if (!mounted) return;
       _load();
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() => _error = 'Не удалось удалить');
     }
@@ -96,7 +96,7 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
             children: [
               Expanded(
                 child: Text(
-                  'Покупатели',
+                  'Поставщики',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -104,7 +104,7 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
               ),
               FilledButton.icon(
                 onPressed: () async {
-                  final result = await context.push<bool>('/counterparties/create');
+                  final result = await context.push<bool>('/suppliers/create');
                   if (result == true && mounted) _load();
                 },
                 icon: const Icon(Icons.add, size: 20),
@@ -132,16 +132,15 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
                         ],
                       ),
                     )
-                  : _counterparties.isEmpty
+                  : _suppliers.isEmpty
                       ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.business_outlined,
-                                  size: 64, color: AppColors.muted),
+                              Icon(Icons.local_shipping_outlined, size: 64, color: AppColors.muted),
                               const SizedBox(height: 16),
                               Text(
-                                'Нет покупателей',
+                                'Нет поставщиков',
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                             ],
@@ -151,11 +150,11 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
                           onRefresh: _load,
                           child: ListView.builder(
                             padding: const EdgeInsets.all(16),
-                            itemCount: _counterparties.length,
+                            itemCount: _suppliers.length,
                             itemBuilder: (context, index) {
-                              final counterparty = _counterparties[index];
+                              final supplier = _suppliers[index];
                               return Dismissible(
-                                key: Key('counterparty-${counterparty.id}'),
+                                key: Key('supplier-${supplier.id}'),
                                 direction: DismissDirection.endToStart,
                                 background: Container(
                                   alignment: Alignment.centerRight,
@@ -164,7 +163,7 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
                                   child: const Icon(Icons.delete, color: Colors.white),
                                 ),
                                 confirmDismiss: (direction) async {
-                                  await _deleteCounterparty(counterparty);
+                                  await _deleteSupplier(supplier);
                                   return false;
                                 },
                                 child: Card(
@@ -173,14 +172,14 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
                                     leading: CircleAvatar(
                                       backgroundColor: AppColors.primaryLight,
                                       child: Icon(
-                                        Icons.business,
+                                        Icons.local_shipping,
                                         color: AppColors.primary,
                                       ),
                                     ),
-                                    title: Text(counterparty.name),
-                                    subtitle: counterparty.phone != null || counterparty.email != null
+                                    title: Text(supplier.name),
+                                    subtitle: supplier.phone != null || supplier.email != null
                                         ? Text(
-                                            [counterparty.phone, counterparty.email]
+                                            [supplier.phone, supplier.email]
                                                 .where((e) => e != null && e.isNotEmpty)
                                                 .join(', '),
                                             style: TextStyle(
@@ -192,7 +191,7 @@ class _CounterpartiesScreenState extends State<CounterpartiesScreen> {
                                     trailing: const Icon(Icons.chevron_right),
                                     onTap: () async {
                                       final result = await context.push<bool>(
-                                        '/counterparties/${counterparty.id}/edit',
+                                        '/suppliers/${supplier.id}/edit',
                                       );
                                       if (result == true && mounted) _load();
                                     },

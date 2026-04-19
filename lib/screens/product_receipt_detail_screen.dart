@@ -1,11 +1,12 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
 import '../models/cart_item.dart';
-import '../models/counterparty.dart';
 import '../models/product.dart';
 import '../models/product_receipt.dart';
+import '../models/supplier.dart';
 import '../services/api_service.dart';
 import '../utils/time_util.dart';
 import '../utils/toast.dart';
@@ -30,13 +31,19 @@ class _ProductReceiptDetailScreenState
     extends State<ProductReceiptDetailScreen> {
   ProductReceipt? _receipt;
   List<CartItem> _items = [];
-  List<Counterparty> _counterparties = [];
-  int? _selectedCounterpartyId;
-  String? _supplierName;
+  List<Supplier> _suppliers = [];
+  int? _selectedSupplierId;
+  final TextEditingController _supplierNameController =
+      TextEditingController();
+  final FocusNode _barcodeFocusNode = FocusNode();
+  final TextEditingController _barcodeController = TextEditingController();
+  List<String> _images = [];
   int? _editingPriceIndex;
   TextEditingController? _priceEditController;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isBarcodeLoading = false;
+  bool _isUploadingImages = false;
   String? _error;
 
   @override
@@ -48,7 +55,22 @@ class _ProductReceiptDetailScreenState
   @override
   void dispose() {
     _priceEditController?.dispose();
+    _supplierNameController.dispose();
+    _barcodeFocusNode.dispose();
+    _barcodeController.dispose();
     super.dispose();
+  }
+
+  /// Как на кассе: надёжно возвращает фокус на скрытое поле HID-сканера.
+  void _refocusBarcodeField() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _barcodeFocusNode.canRequestFocus) {
+          _barcodeFocusNode.requestFocus();
+        }
+      });
+    });
   }
 
   Future<void> _load() async {
@@ -58,7 +80,7 @@ class _ProductReceiptDetailScreenState
     });
     try {
       final receipt = await widget.apiService.getProductReceipt(widget.receiptId);
-      final counterparties = await widget.apiService.getCounterparties();
+      final suppliers = await widget.apiService.getSuppliers();
       if (!mounted) return;
       setState(() {
         _receipt = receipt;
@@ -72,12 +94,16 @@ class _ProductReceiptDetailScreenState
                 unit: e.unit,
               ),
             )
+            .toList()
+            .reversed
             .toList();
-        _counterparties = counterparties;
-        _selectedCounterpartyId = receipt.counterpartyId;
-        _supplierName = receipt.supplierName;
+        _suppliers = suppliers;
+        _selectedSupplierId = receipt.supplierId;
+        _supplierNameController.text = receipt.supplierName ?? '';
+        _images = List<String>.from(receipt.images);
         _isLoading = false;
       });
+      if (mounted) _refocusBarcodeField();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -91,6 +117,7 @@ class _ProductReceiptDetailScreenState
     if (_receipt == null) return;
     if (_items.isEmpty) {
       showToast(context, 'Добавьте хотя бы одну позицию');
+      _refocusBarcodeField();
       return;
     }
     setState(() {
@@ -100,9 +127,14 @@ class _ProductReceiptDetailScreenState
     try {
       await widget.apiService.updateProductReceipt(
         widget.receiptId,
-        counterpartyId: _selectedCounterpartyId,
-        supplierName: _selectedCounterpartyId == null ? _supplierName : null,
+        supplierId: _selectedSupplierId,
+        supplierName:
+            _selectedSupplierId == null &&
+                _supplierNameController.text.isNotEmpty
+            ? _supplierNameController.text.trim()
+            : null,
         items: _items.map((e) => e.toJson()).toList(),
+        images: _images,
       );
       if (!mounted) return;
       showToast(context, 'Поступление обновлено');
@@ -113,11 +145,112 @@ class _ProductReceiptDetailScreenState
         _isSaving = false;
         _error = 'Не удалось сохранить';
       });
+      _refocusBarcodeField();
     }
   }
 
   double get _itemsTotal =>
       _items.fold(0, (sum, item) => sum + item.total);
+
+  void _addProduct(Product product) {
+    setState(() {
+      final existingIndex = _items.indexWhere(
+        (item) => item.productId == product.id,
+      );
+      if (existingIndex >= 0) {
+        final line = _items[existingIndex];
+        line.quantity += product.unit == 'pcs' ? 1.0 : 0.1;
+        _items.removeAt(existingIndex);
+        _items.insert(0, line);
+      } else {
+        _items.insert(
+          0,
+          CartItem(
+            productId: product.id,
+            name: product.name,
+            price: product.purchasePrice,
+            quantity: 1,
+            unit: product.unit,
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> _onBarcodeSubmitted(String value) async {
+    final barcode = value.trim();
+    if (barcode.isEmpty) return;
+    final isDigitsOnly = RegExp(r'^\d+$').hasMatch(barcode);
+    if (!isDigitsOnly || barcode.length > 32) {
+      if (mounted) {
+        showToast(context, 'Поддерживаются только штрихкоды (цифры)');
+      }
+      _refocusBarcodeField();
+      return;
+    }
+    _barcodeController.clear();
+    if (_isBarcodeLoading || !mounted) return;
+    setState(() => _isBarcodeLoading = true);
+    try {
+      final result = await widget.apiService.resolveBarcode(barcode);
+      if (!mounted) return;
+      if (result != null) {
+        if (result.isProduct && result.product != null) {
+          _addProduct(result.product!);
+          showToast(context, 'Добавлено: ${result.product!.name}');
+        } else if (result.isSet && result.productSet != null) {
+          showToast(context, 'Сеты не поддерживаются в поступлениях');
+        } else {
+          showToast(context, 'Товар с штрихкодом "$barcode" не найден');
+        }
+      } else {
+        showToast(context, 'Товар с штрихкодом "$barcode" не найден');
+      }
+    } catch (_) {
+      if (mounted) {
+        showToast(context, 'Ошибка поиска товара');
+      }
+    } finally {
+      if (mounted) setState(() => _isBarcodeLoading = false);
+      if (mounted) _refocusBarcodeField();
+    }
+  }
+
+  Future<void> _pickAndUploadImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    if (result == null || result.files.isEmpty || !mounted) {
+      _refocusBarcodeField();
+      return;
+    }
+    setState(() => _isUploadingImages = true);
+    try {
+      for (final f in result.files) {
+        final path = f.path;
+        if (path == null || path.isEmpty) continue;
+        final uploadedPath = await widget.apiService.uploadReceiptImage(
+          path,
+          filename: f.name,
+        );
+        if (!mounted) return;
+        setState(() => _images.add(uploadedPath));
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+      if (mounted) _refocusBarcodeField();
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() => _images.removeAt(index));
+    _refocusBarcodeField();
+  }
+
+  String _imageUrl(String path) => widget.apiService.fileUrl(path);
 
   void _updateQuantity(int index, double delta) {
     setState(() {
@@ -128,6 +261,7 @@ class _ProductReceiptDetailScreenState
         _items.removeAt(index);
       }
     });
+    _refocusBarcodeField();
   }
 
   Future<void> _editQuantity(int index) async {
@@ -182,7 +316,8 @@ class _ProductReceiptDetailScreenState
         );
       },
     );
-    if (result != null && mounted) {
+    if (!mounted) return;
+    if (result != null) {
       setState(() {
         if (result <= 0) {
           _items.removeAt(index);
@@ -191,6 +326,7 @@ class _ProductReceiptDetailScreenState
         }
       });
     }
+    _refocusBarcodeField();
   }
 
   void _startEditPrice(int index) {
@@ -220,28 +356,41 @@ class _ProductReceiptDetailScreenState
     _priceEditController?.dispose();
     _priceEditController = null;
     _editingPriceIndex = null;
+    _refocusBarcodeField();
+  }
+
+  /// Короткая подпись между [−] и [+] (как в макете: «1» для штук).
+  String _quantityStepperLabel(CartItem item) {
+    if (item.unit == 'pcs') {
+      return item.quantity.round().toString();
+    }
+    return item.quantity.toStringAsFixed(2);
+  }
+
+  /// Вторая строка карточки: «1800.00 ₸ × 1.0 pcs».
+  String _unitPriceTimesQuantityLine(CartItem item) {
+    final qtyPart = item.unit == 'pcs'
+        ? '${item.quantity.toStringAsFixed(1)} pcs'
+        : '${item.quantity.toStringAsFixed(2)} ${item.unit}';
+    return '${item.price.toStringAsFixed(2)} ₸ × $qtyPart';
   }
 
   Future<void> _showAddProductDialog() async {
-    final result = await showDialog<Object>(
+    await showDialog<void>(
       context: context,
-      builder: (ctx) => AddProductDialog(apiService: widget.apiService),
+      builder: (ctx) => AddProductDialog(
+        apiService: widget.apiService,
+        onAddProduct: (p) {
+          _addProduct(p);
+          _refocusBarcodeField();
+        },
+        onAddSet: (_) {
+          showToast(context, 'Сеты не поддерживаются в поступлениях');
+          _refocusBarcodeField();
+        },
+      ),
     );
-    if (result != null && mounted) {
-      if (result is Product) {
-        setState(() {
-          _items.add(
-            CartItem(
-              productId: result.id,
-              name: result.name,
-              price: result.purchasePrice,
-              quantity: 1,
-              unit: result.unit,
-            ),
-          );
-        });
-      }
-    }
+    if (mounted) _refocusBarcodeField();
   }
 
   String _formatDate(DateTime dt) {
@@ -277,7 +426,9 @@ class _ProductReceiptDetailScreenState
       );
     }
 
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: Text('Поступление #${_receipt!.id}'),
         actions: [
@@ -311,43 +462,114 @@ class _ProductReceiptDetailScreenState
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<int?>(
-                  value: _selectedCounterpartyId,
+                  value: _selectedSupplierId,
                   decoration: const InputDecoration(
-                    labelText: 'Контрагент',
+                    labelText: 'Поставщик',
                     border: OutlineInputBorder(),
                   ),
                   items: [
                     const DropdownMenuItem<int?>(value: null, child: Text('Не выбран')),
-                    ..._counterparties.map(
-                      (c) => DropdownMenuItem<int?>(
-                        value: c.id,
-                        child: Text(c.name),
+                    ..._suppliers.map(
+                      (supplier) => DropdownMenuItem<int?>(
+                        value: supplier.id,
+                        child: Text(supplier.name),
                       ),
                     ),
                   ],
                   onChanged: (value) {
                     setState(() {
-                      _selectedCounterpartyId = value;
+                      _selectedSupplierId = value;
                       if (value != null) {
-                        _supplierName = null;
+                        _supplierNameController.clear();
                       }
                     });
+                    _refocusBarcodeField();
                   },
                 ),
-                if (_selectedCounterpartyId == null) ...[
+                if (_selectedSupplierId == null) ...[
                   const SizedBox(height: 8),
                   TextField(
+                    controller: _supplierNameController,
                     decoration: const InputDecoration(
                       labelText: 'Название поставщика',
                       border: OutlineInputBorder(),
                     ),
-                    controller: TextEditingController(text: _supplierName)
-                      ..selection = TextSelection.collapsed(
-                        offset: _supplierName?.length ?? 0,
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _showAddProductDialog,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Добавить товар вручную'),
                       ),
-                    onChanged: (value) {
-                      _supplierName = value.isEmpty ? null : value;
-                    },
+                    ),
+                    IconButton(
+                      tooltip: 'Фокус на сканер штрихкода',
+                      onPressed: _refocusBarcodeField,
+                      icon: const Icon(Icons.keyboard_alt_outlined),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed:
+                      _isUploadingImages ? null : _pickAndUploadImages,
+                  icon: _isUploadingImages
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.photo_library_outlined),
+                  label: const Text('Добавить фото накладной'),
+                ),
+                if (_images.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 76,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _images.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final path = _images[index];
+                        return Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                _imageUrl(path),
+                                width: 76,
+                                height: 76,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Positioned(
+                              right: 0,
+                              top: 0,
+                              child: InkWell(
+                                onTap: () => _removeImage(index),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.all(2),
+                                  child: const Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ],
               ],
@@ -355,79 +577,182 @@ class _ProductReceiptDetailScreenState
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               children: [
                 ..._items.asMap().entries.map((entry) {
                   final index = entry.key;
                   final item = entry.value;
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: Text(item.name),
-                      subtitle: Row(
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          GestureDetector(
-                            onTap: () => _startEditPrice(index),
-                            child: (_editingPriceIndex == index && _priceEditController != null)
-                                ? SizedBox(
-                                    width: 100,
-                                    child: TextField(
-                                      controller: _priceEditController,
-                                      autofocus: true,
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                      decoration: const InputDecoration(
-                                        isDense: true,
-                                        border: OutlineInputBorder(),
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      ),
-                                      onSubmitted: (_) => _finishEditPrice(save: true),
-                                      onEditingComplete: () => _finishEditPrice(save: true),
-                                    ),
-                                  )
-                                : Text(
-                                    '${item.price.toStringAsFixed(2)} ₸ × ',
-                                    style: TextStyle(
-                                      decoration: TextDecoration.underline,
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                          ),
-                          GestureDetector(
-                            onTap: () => _editQuantity(index),
+                          Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryLight,
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
                             child: Text(
-                              '${item.quantity.toStringAsFixed(item.unit == 'pcs' ? 0 : 2)} ${item.unit}',
+                              '${index + 1}',
                               style: TextStyle(
-                                decoration: TextDecoration.underline,
-                                color: AppColors.primary,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w600,
+                                color: AppColors.primary,
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${item.total.toStringAsFixed(2)} ₸',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.name,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1A1A1A),
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                GestureDetector(
+                                  onTap: () => _startEditPrice(index),
+                                  child:
+                                      (_editingPriceIndex == index &&
+                                          _priceEditController != null)
+                                      ? SizedBox(
+                                          width: double.infinity,
+                                          child: TextField(
+                                            controller: _priceEditController,
+                                            autofocus: true,
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                            decoration: const InputDecoration(
+                                              isDense: true,
+                                              border: OutlineInputBorder(),
+                                              contentPadding:
+                                                  EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
+                                            ),
+                                            onSubmitted: (_) =>
+                                                _finishEditPrice(save: true),
+                                            onEditingComplete: () =>
+                                                _finishEditPrice(save: true),
+                                          ),
+                                        )
+                                      : Text(
+                                          _unitPriceTimesQuantityLine(item),
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            height: 1.25,
+                                            color: AppColors.muted,
+                                          ),
+                                        ),
+                                ),
+                              ],
+                            ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle_outline),
-                            onPressed: () => _updateQuantity(index, -1),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline),
-                            onPressed: () => _updateQuantity(index, 1),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            color: AppColors.danger,
-                            onPressed: () {
-                              setState(() {
-                                _items.removeAt(index);
-                              });
-                            },
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.remove_circle_outline,
+                                  size: 22,
+                                  color: Color(0xFF424242),
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 40,
+                                  minHeight: 40,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () => _updateQuantity(index, -1),
+                              ),
+                              GestureDetector(
+                                onTap: () => _editQuantity(index),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                  ),
+                                  child: Text(
+                                    _quantityStepperLabel(item),
+                                    style: TextStyle(
+                                      decoration: TextDecoration.underline,
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.add_circle_outline,
+                                  size: 22,
+                                  color: Color(0xFF424242),
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 40,
+                                  minHeight: 40,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () => _updateQuantity(index, 1),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                '${item.total.toStringAsFixed(2)} ₸',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                  color: Color(0xFF1A1A1A),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 22,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 40,
+                                  minHeight: 40,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                color: AppColors.danger,
+                                onPressed: () {
+                                  setState(() {
+                                    _items.removeAt(index);
+                                  });
+                                  _refocusBarcodeField();
+                                },
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -474,19 +799,52 @@ class _ProductReceiptDetailScreenState
                   ],
                 ),
                 const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: _showAddProductDialog,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Добавить товар'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 48),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _showAddProductDialog,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Добавить товар'),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 48),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Фокус на сканер штрихкода',
+                      onPressed: _refocusBarcodeField,
+                      icon: const Icon(Icons.keyboard_alt_outlined),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
         ],
       ),
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          child: SizedBox(
+            width: 1,
+            height: 1,
+            child: TextField(
+              controller: _barcodeController,
+              focusNode: _barcodeFocusNode,
+              keyboardType: TextInputType.number,
+              enabled: !_isBarcodeLoading,
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
+                isDense: true,
+              ),
+              onSubmitted: _onBarcodeSubmitted,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

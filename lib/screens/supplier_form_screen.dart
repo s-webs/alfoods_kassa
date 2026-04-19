@@ -2,28 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
-import '../models/counterparty.dart';
+import '../models/supplier.dart';
 import '../services/api_service.dart';
 
-class CounterpartyFormScreen extends StatefulWidget {
-  const CounterpartyFormScreen({
+class SupplierFormScreen extends StatefulWidget {
+  const SupplierFormScreen({
     super.key,
     required this.apiService,
-    this.counterpartyId,
-    this.mode = CounterpartyFormMode.create,
+    this.supplierId,
+    this.mode = SupplierFormMode.create,
   });
 
   final ApiService apiService;
-  final int? counterpartyId;
-  final CounterpartyFormMode mode;
+  final int? supplierId;
+  final SupplierFormMode mode;
 
   @override
-  State<CounterpartyFormScreen> createState() => _CounterpartyFormScreenState();
+  State<SupplierFormScreen> createState() => _SupplierFormScreenState();
 }
 
-enum CounterpartyFormMode { create, edit }
+enum SupplierFormMode { create, edit }
 
-class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
+class _SupplierFormScreenState extends State<SupplierFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _iinController = TextEditingController();
@@ -36,7 +36,7 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
 
-  Counterparty? _counterparty;
+  Supplier? _supplier;
   bool _isLoading = true;
   bool _isSaving = false;
   String? _error;
@@ -44,7 +44,7 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.mode == CounterpartyFormMode.edit && widget.counterpartyId != null) {
+    if (widget.mode == SupplierFormMode.edit && widget.supplierId != null) {
       _load();
     } else {
       setState(() => _isLoading = false);
@@ -72,26 +72,26 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
       _error = null;
     });
     try {
-      final counterparty = await widget.apiService.getCounterparty(widget.counterpartyId!);
+      final supplier = await widget.apiService.getSupplier(widget.supplierId!);
       if (!mounted) return;
       setState(() {
-        _counterparty = counterparty;
-        _nameController.text = counterparty.name;
-        _iinController.text = counterparty.iin ?? '';
-        _kbeController.text = counterparty.kbe ?? '';
-        _iikController.text = counterparty.iik ?? '';
-        _bankNameController.text = counterparty.bankName ?? '';
-        _bikController.text = counterparty.bik ?? '';
-        _addressController.text = counterparty.address ?? '';
-        _managerController.text = counterparty.manager ?? '';
-        _phoneController.text = counterparty.phone ?? '';
-        _emailController.text = counterparty.email ?? '';
+        _supplier = supplier;
+        _nameController.text = supplier.name;
+        _iinController.text = supplier.iin ?? '';
+        _kbeController.text = supplier.kbe ?? '';
+        _iikController.text = supplier.iik ?? '';
+        _bankNameController.text = supplier.bankName ?? '';
+        _bikController.text = supplier.bik ?? '';
+        _addressController.text = supplier.address ?? '';
+        _managerController.text = supplier.manager ?? '';
+        _phoneController.text = supplier.phone ?? '';
+        _emailController.text = supplier.email ?? '';
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = 'Не удалось загрузить покупателя';
+        _error = 'Не удалось загрузить поставщика';
         _isLoading = false;
       });
     }
@@ -119,10 +119,10 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
         'phone': _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
         'email': _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
       };
-      if (widget.mode == CounterpartyFormMode.edit && widget.counterpartyId != null) {
-        await widget.apiService.updateCounterparty(widget.counterpartyId!, data);
+      if (widget.mode == SupplierFormMode.edit && widget.supplierId != null) {
+        await widget.apiService.updateSupplier(widget.supplierId!, data);
       } else {
-        await widget.apiService.createCounterparty(data);
+        await widget.apiService.createSupplier(data);
       }
       if (!mounted) return;
       context.pop(true);
@@ -138,13 +138,13 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
   }
 
   Future<void> _delete() async {
-    if (widget.counterpartyId == null) return;
+    if (widget.supplierId == null) return;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Удалить покупателя?'),
+        title: const Text('Удалить поставщика?'),
         content: Text(
-          'Покупатель «${_counterparty?.name ?? ''}» будет удален безвозвратно.',
+          'Поставщик «${_supplier?.name ?? ''}» будет удален безвозвратно.',
         ),
         actions: [
           TextButton(
@@ -166,10 +166,10 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
       _error = null;
     });
     try {
-      await widget.apiService.deleteCounterparty(widget.counterpartyId!);
+      await widget.apiService.deleteSupplier(widget.supplierId!);
       if (!mounted) return;
       context.pop(true);
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _isSaving = false;
@@ -182,13 +182,13 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Покупатель')),
+        appBar: AppBar(title: const Text('Поставщик')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-    if (_error != null && _counterparty == null && widget.mode == CounterpartyFormMode.edit) {
+    if (_error != null && _supplier == null && widget.mode == SupplierFormMode.edit) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Покупатель')),
+        appBar: AppBar(title: const Text('Поставщик')),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -210,7 +210,7 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.mode == CounterpartyFormMode.edit ? 'Редактирование' : 'Новый покупатель',
+          widget.mode == SupplierFormMode.edit ? 'Редактирование' : 'Новый поставщик',
         ),
       ),
       body: SingleChildScrollView(
@@ -331,14 +331,10 @@ class _CounterpartyFormScreenState extends State<CounterpartyFormScreen> {
                       )
                     : const Text('Сохранить'),
               ),
-              if (widget.mode == CounterpartyFormMode.edit) ...[
+              if (widget.mode == SupplierFormMode.edit) ...[
                 const SizedBox(height: 12),
                 OutlinedButton(
-                  onPressed: _isSaving
-                      ? null
-                      : () {
-                          _delete();
-                        },
+                  onPressed: _isSaving ? null : _delete,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.danger,
                     side: const BorderSide(color: AppColors.danger),
