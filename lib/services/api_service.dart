@@ -16,6 +16,7 @@ import '../models/shift.dart';
 import '../models/supplier.dart';
 import '../models/task.dart';
 import '../models/user.dart';
+import '../models/waybill_analysis.dart';
 import '../utils/time_util.dart';
 
 /// Result of resolving a barcode: either a product or a set.
@@ -218,6 +219,126 @@ class ApiService {
 
   Future<void> deleteProduct(int id) async {
     await _apiClient.dio.delete('api/products/$id');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Waybill AI name→product mappings
+  // Stored on the backend so they work across devices (mobile app, kassa, etc.)
+  // ---------------------------------------------------------------------------
+
+  /// Returns map of {ai_name → product_id} for all saved mappings.
+  Future<Map<String, int>> getWaybillMappings() async {
+    try {
+      final response = await _apiClient.dio.get('api/waybill/mappings');
+      final list = response.data as List<dynamic>;
+      return {
+        for (final e in list)
+          (e['ai_name'] as String): (e['product_id'] as int),
+      };
+    } on DioException catch (e) {
+      // Endpoint may not exist yet on the backend — return empty gracefully
+      if (e.response?.statusCode == 404) return {};
+      rethrow;
+    }
+  }
+
+  /// Saves or updates the mapping ai_name → product_id.
+  Future<void> saveWaybillMapping(String aiName, int productId) async {
+    try {
+      await _apiClient.dio.post('api/waybill/mappings', data: {
+        'ai_name': aiName,
+        'product_id': productId,
+      });
+    } on DioException catch (e) {
+      // Gracefully ignore if endpoint not yet implemented
+      if (e.response?.statusCode == 404) return;
+      rethrow;
+    }
+  }
+
+  /// Analyze uploaded waybill image via backend API.
+  Future<WaybillAnalysisResult> analyzeWaybill(
+    String localImagePath, {
+    String? model,
+  }) async {
+    final name = localImagePath.split(RegExp(r'[/\\]')).last;
+    final optimized = await ImageOptimizer.optimizeFile(localImagePath);
+    final formData = FormData.fromMap({
+      'file': optimized != null
+          ? MultipartFile.fromBytes(optimized.bytes, filename: optimized.filename)
+          : await MultipartFile.fromFile(localImagePath, filename: name),
+      if (model != null && model.trim().isNotEmpty) 'model': model.trim(),
+    });
+
+    try {
+      final response = await _apiClient.dio.post(
+        'api/waybill/analyze',
+        data: formData,
+        options: Options(
+          // AI parsing can take longer than default API calls.
+          sendTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(seconds: 240),
+        ),
+      );
+      final json = response.data as Map<String, dynamic>;
+      final analysis = json['analysis'] as Map<String, dynamic>;
+      return WaybillAnalysisResult.fromJson(analysis);
+    } on DioException catch (e) {
+      throw WaybillAnalyzeException(_extractWaybillError(e));
+    }
+  }
+
+  String _extractWaybillError(DioException e) {
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.sendTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      return 'Таймаут при анализе накладной. Повторите попытку.';
+    }
+    if (e.type == DioExceptionType.connectionError) {
+      final base = 'Нет соединения с сервером alfoods.';
+      final detail = e.message?.trim();
+      return (detail == null || detail.isEmpty) ? base : '$base $detail';
+    }
+    if (e.type == DioExceptionType.cancel) {
+      return 'Запрос анализа был отменен.';
+    }
+
+    final data = e.response?.data;
+    if (data is Map<String, dynamic>) {
+      final error = data['error']?.toString();
+      if (error != null && error.trim().isNotEmpty) return error;
+
+      final message = data['message']?.toString();
+      if (message != null && message.trim().isNotEmpty) return message;
+
+      final errors = data['errors'];
+      if (errors is Map) {
+        for (final value in errors.values) {
+          if (value is List && value.isNotEmpty) {
+            return value.first.toString();
+          }
+          if (value is String && value.isNotEmpty) {
+            return value;
+          }
+        }
+      }
+    }
+    if (data is String && data.trim().isNotEmpty) {
+      return data;
+    }
+
+    final status = e.response?.statusCode;
+    if (status == 422) {
+      return 'Файл накладной не прошел валидацию. Попробуйте JPG/PNG/WebP.';
+    }
+    if (status == 502) {
+      return 'Сервис анализа временно недоступен. Повторите позже.';
+    }
+    final message = e.message?.trim();
+    if (message != null && message.isNotEmpty) {
+      return 'Ошибка анализа (HTTP ${status ?? 'unknown'}): $message';
+    }
+    return 'Ошибка анализа (HTTP ${status ?? 'unknown'}).';
   }
 
   Future<Product> getProduct(int id) async {
@@ -718,4 +839,12 @@ class LoginResult {
   final String? centrifugoWsUrl;
 
   LoginResult({required this.token, required this.user, this.centrifugoWsUrl});
+}
+
+class WaybillAnalyzeException implements Exception {
+  WaybillAnalyzeException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }

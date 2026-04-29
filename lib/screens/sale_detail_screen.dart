@@ -592,6 +592,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         total: _itemsTotal,
         totalQty: totalQty,
         dateTime: dateTime,
+        rawEncoding: widget.storage.receiptRawEncoding,
+        xprinterCyrillicPreamble: widget.storage.receiptRawXprinterPreamble,
       );
       await ReceiptPrinterService.printReceipt(
         printerName: widget.storage.receiptPrinterName,

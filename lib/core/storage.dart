@@ -10,6 +10,8 @@ class Storage {
   static const _keyUser = 'user';
   static const _keyReceiptPrinterName = 'receipt_printer_name';
   static const _keyReceiptPrintMode = 'receipt_print_mode';
+  static const _keyReceiptRawEncoding = 'receipt_raw_encoding';
+  static const _keyReceiptRawXprinterPreamble = 'receipt_raw_xprinter_preamble';
   static const _keyLabelTemplate = 'label_template';
   static const _keyPriceTagTemplate = 'price_tag_template';
   static const _keyEntrepreneurName = 'entrepreneur_name';
@@ -18,6 +20,8 @@ class Storage {
   static const _keyEntrepreneurAddress = 'entrepreneur_address';
   static const _keyTimeOffsetMs = 'time_offset_ms';
   static const _keyTimeLastSyncMs = 'time_last_sync_ms';
+  static const _keyWaybillAiModel = 'waybill_ai_model';
+  static const _keyWaybillAiApiKey = 'waybill_ai_api_key';
 
   final SharedPreferences _prefs;
 
@@ -84,6 +88,24 @@ class Storage {
   String get receiptPrintMode => _prefs.getString(_keyReceiptPrintMode) ?? 'raw';
   Future<void> setReceiptPrintMode(String mode) async {
     await _prefs.setString(_keyReceiptPrintMode, mode);
+  }
+
+  /// Кодировка RAW-чека: идентификатор, задающий пару (кодовая страница ESC/POS + кодировка текста).
+  /// - 'cp866_17'  — ESC t 17, CP866 (DOS Cyrillic) — стандарт ESC/POS
+  /// - 'cp1251_22' — ESC t 22, Windows-1251 — для принтеров, не реагирующих на CP866
+  /// - 'cp866_25'  — ESC t 25, CP866 — альтернативная нумерация у некоторых производителей
+  String get receiptRawEncoding =>
+      _prefs.getString(_keyReceiptRawEncoding) ?? 'cp866_17';
+  Future<void> setReceiptRawEncoding(String value) async {
+    await _prefs.setString(_keyReceiptRawEncoding, value);
+  }
+
+  /// Преамбула для Xprinter/клонов: убирает «китайский» режим парных байтов при RAW-печати.
+  /// Включите, если вместо кириллицы печатаются иероглифы (при корректной кодировке в списке выше).
+  bool get receiptRawXprinterPreamble =>
+      _prefs.getBool(_keyReceiptRawXprinterPreamble) ?? false;
+  Future<void> setReceiptRawXprinterPreamble(bool value) async {
+    await _prefs.setBool(_keyReceiptRawXprinterPreamble, value);
   }
 
   /// Макет этикетки по умолчанию (JSON).
@@ -154,6 +176,28 @@ class Storage {
 
   int get timeOffsetMs => _prefs.getInt(_keyTimeOffsetMs) ?? 0;
   Future<void> setTimeOffsetMs(int value) => _prefs.setInt(_keyTimeOffsetMs, value);
+
+  // --- Waybill AI settings ---
+
+  /// Model name for OpenAI. Default: gpt-4.1-mini.
+  String? get waybillAiModel => _prefs.getString(_keyWaybillAiModel);
+  Future<void> setWaybillAiModel(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyWaybillAiModel);
+    } else {
+      await _prefs.setString(_keyWaybillAiModel, value);
+    }
+  }
+
+  /// OpenAI API key (only used when provider == 'openai').
+  String? get waybillAiApiKey => _prefs.getString(_keyWaybillAiApiKey);
+  Future<void> setWaybillAiApiKey(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyWaybillAiApiKey);
+    } else {
+      await _prefs.setString(_keyWaybillAiApiKey, value);
+    }
+  }
 
   int? get timeLastSyncMs => _prefs.getInt(_keyTimeLastSyncMs);
   Future<void> setTimeLastSyncMs(int value) => _prefs.setInt(_keyTimeLastSyncMs, value);

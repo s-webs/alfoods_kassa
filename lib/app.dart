@@ -365,7 +365,9 @@ class App extends StatelessWidget {
             GoRoute(
               path: '/product-receipts/create',
               pageBuilder: (context, state) => NoTransitionPage(
-                child: ProductReceiptFormScreen(apiService: apiService),
+                child: ProductReceiptFormScreen(
+                  apiService: apiService,
+                ),
               ),
             ),
             GoRoute(

@@ -84,6 +84,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       total: order.total,
       totalQty: totalQty,
       dateTime: dateTime,
+      rawEncoding: widget.storage.receiptRawEncoding,
+      xprinterCyrillicPreamble: widget.storage.receiptRawXprinterPreamble,
     );
     await ReceiptPrinterService.printReceipt(
       printerName: widget.storage.receiptPrinterName,

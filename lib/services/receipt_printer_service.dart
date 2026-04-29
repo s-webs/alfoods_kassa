@@ -9,9 +9,10 @@ import 'pdf_printer_plugin.dart';
 
 /// Печать товарного чека на термопринтер 80мм в формате Almaty Foods.
 ///
-/// Текст кодируется в CP866 (DOS Cyrillic), кодовая страница устанавливается
-/// командой ESC t 17 в начале документа — это обеспечивает корректное
-/// отображение кириллицы при RAW-печати без сторонних утилит.
+/// Текст кодируется в CP866 или Windows-1251; кодовая страница — ESC t n.
+/// Для Xprinter XP-*/китайских ESC/POS при «иероглифах» вместо кириллицы
+/// включите в настройках преамбулу Xprinter (последовательность из документации):
+/// иначе байты CP866 воспринимаются как GBK-пары.
 class ReceiptPrinterService {
   static const int _lineWidth = 48; // 80мм ~ 48 символов
   static const String _companyName = 'Almaty Foods';
@@ -19,6 +20,7 @@ class ReceiptPrinterService {
   // ── ESC/POS константы ──────────────────────────────────────────────────────
   static const int _ESC = 0x1B;
   static const int _GS = 0x1D;
+  static const int _FS = 0x1C;
 
   // ── Вспомогательные строковые методы ───────────────────────────────────────
 
@@ -116,13 +118,79 @@ class ReceiptPrinterService {
     return out;
   }
 
+  // ── Windows-1251 кодирование ────────────────────────────────────────────────
+
+  /// Конвертирует один Unicode code point в байт Windows-1251.
+  /// Неизвестные символы заменяются на '?' (0x3F).
+  static int _charToCP1251(int cp) {
+    // ASCII (0x00–0x7F) — без изменений
+    if (cp < 0x80) return cp;
+
+    // Кириллица заглавная А–Я  (U+0410–U+042F) → 0xC0–0xDF
+    if (cp >= 0x0410 && cp <= 0x042F) return cp - 0x0410 + 0xC0;
+
+    // Кириллица строчная а–я   (U+0430–U+044F) → 0xE0–0xFF
+    if (cp >= 0x0430 && cp <= 0x044F) return cp - 0x0430 + 0xE0;
+
+    // Ё (U+0401) → 0xA8,  ё (U+0451) → 0xB8
+    if (cp == 0x0401) return 0xA8;
+    if (cp == 0x0451) return 0xB8;
+
+    // № (U+2116) → 0xB9
+    if (cp == 0x2116) return 0xB9;
+
+    // Всё остальное → '?'
+    return 0x3F;
+  }
+
+  /// Кодирует строку Dart в байты Windows-1251.
+  static List<int> _encodeCP1251(String text) {
+    final out = <int>[];
+    for (final cp in text.runes) {
+      out.add(_charToCP1251(cp));
+    }
+    return out;
+  }
+
+  /// Кодирует строку в байты согласно выбранной кодировке принтера.
+  /// [rawEncoding] — идентификатор из Storage.receiptRawEncoding.
+  static List<int> _encodeText(String text, String rawEncoding) {
+    if (rawEncoding.startsWith('cp1251')) return _encodeCP1251(text);
+    return _encodeCP866(text);
+  }
+
   // ── Низкоуровневые ESC/POS команды ─────────────────────────────────────────
 
   /// ESC @ — инициализация принтера
   static List<int> _cmdInit() => [_ESC, 0x40];
 
-  /// ESC t 17 — выбор кодовой страницы PC866 (DOS Cyrillic)
-  static List<int> _cmdCodePageCP866() => [_ESC, 0x74, 17];
+  /// FS . — отмена режима китайских (Kanji/GBK) двухбайтовых символов.
+  ///
+  /// Без этой команды многие китайские термопринтеры (Xprinter XP-58/XP-80,
+  /// HPRT, Rongta, ZJ и клоны) по умолчанию интерпретируют байты ≥ 0x80 как
+  /// первый байт пары CJK, из-за чего CP866/CP1251 кириллица печатается
+  /// иероглифами. ESC @ (init) у этих прошивок Kanji-режим НЕ сбрасывает.
+  /// Команда безопасна для всех ESC/POS принтеров — если Kanji не
+  /// поддерживается, она просто игнорируется.
+  static List<int> _cmdCancelKanjiMode() => [_FS, 0x2E];
+
+  /// Преамбула из инструкций Xprinter (xprinter-dv.ru и аналоги): перед выбором
+  /// кодовой страницы переводит прошивку из режима двухбайтового текста.
+  static List<int> _cmdXprinterCyrillicPreamble() => [
+    0x1F,
+    0x1B,
+    0x1F,
+    0xFE,
+    0x01,
+    0x1F,
+    0x1B,
+    0x1F,
+    0xFE,
+    0x11,
+  ];
+
+  /// ESC t n — выбор кодовой страницы по номеру
+  static List<int> _cmdCodePage(int n) => [_ESC, 0x74, n];
 
   /// ESC a n — выравнивание: 0=левое, 1=центр, 2=правое
   static List<int> _cmdAlign(int n) => [_ESC, 0x61, n & 0x03];
@@ -141,10 +209,11 @@ class ReceiptPrinterService {
     String text, {
     bool bold = false,
     int align = 0, // 0=left, 1=center, 2=right
+    String rawEncoding = 'cp866_17',
   }) {
     buf.addAll(_cmdAlign(align));
     buf.addAll(_cmdBold(bold));
-    buf.addAll(_encodeCP866(text));
+    buf.addAll(_encodeText(text, rawEncoding));
     buf.add(0x0A); // LF
   }
 
@@ -155,8 +224,19 @@ class ReceiptPrinterService {
 
   // ── Публичный API ────────────────────────────────────────────────────────────
 
+  /// Извлекает номер кодовой страницы ESC/POS из идентификатора кодировки.
+  /// Формат идентификатора: '<enc>_<n>', например 'cp866_17', 'cp1251_22'.
+  static int _codePageNumber(String rawEncoding) {
+    final parts = rawEncoding.split('_');
+    if (parts.length >= 2) {
+      return int.tryParse(parts.last) ?? 17;
+    }
+    return 17;
+  }
+
   /// Формирует ESC/POS байты чека для печати на 80мм термопринтере.
-  /// Кириллица кодируется в CP866, кодовая страница задаётся ESC t 17.
+  /// [rawEncoding] задаёт пару (кодировка текста + номер кодовой страницы ESC/POS),
+  /// например 'cp866_17' (стандарт) или 'cp1251_22' (для принтеров, не реагирующих на CP866).
   static List<int> buildReceipt({
     required int saleId,
     required String cashierName,
@@ -164,17 +244,25 @@ class ReceiptPrinterService {
     required double total,
     required double totalQty,
     required DateTime dateTime,
+    String rawEncoding = 'cp866_17',
+    bool xprinterCyrillicPreamble = false,
   }) {
     final buf = <int>[];
 
-    // Инициализация + кодовая страница CP866
+    // Инициализация + отмена Kanji-режима + (опц.) Xprinter-преамбула + кодовая страница.
+    // Порядок важен: FS . должен идти после ESC @ и ДО ESC t n, иначе прошивка
+    // успеет интерпретировать первый же байт ≥ 0x80 как начало CJK-пары.
     buf.addAll(_cmdInit());
-    buf.addAll(_cmdCodePageCP866());
+    buf.addAll(_cmdCancelKanjiMode());
+    if (xprinterCyrillicPreamble) {
+      buf.addAll(_cmdXprinterCyrillicPreamble());
+    }
+    buf.addAll(_cmdCodePage(_codePageNumber(rawEncoding)));
 
     // Шапка
-    _addLine(buf, _center(_companyName, _lineWidth), bold: true, align: 1);
-    _addLine(buf, 'Кассир: $cashierName', bold: true);
-    _addLine(buf, 'Товарный чек № $saleId', bold: true);
+    _addLine(buf, _center(_companyName, _lineWidth), bold: true, align: 1, rawEncoding: rawEncoding);
+    _addLine(buf, 'Кассир: $cashierName', bold: true, rawEncoding: rawEncoding);
+    _addLine(buf, 'Товарный чек № $saleId', bold: true, rawEncoding: rawEncoding);
     _addSeparator(buf);
 
     // Заголовок таблицы
@@ -192,6 +280,7 @@ class ReceiptPrinterService {
           _padRight('Цена', colPrice) +
           _padRight('Сумма', colSum),
       bold: true,
+      rawEncoding: rawEncoding,
     );
     _addSeparator(buf);
 
@@ -217,6 +306,7 @@ class ReceiptPrinterService {
                 _padRight(priceStr, colPrice) +
                 _padRight(sumStr, colSum),
             bold: true,
+            rawEncoding: rawEncoding,
           );
         } else {
           _addLine(
@@ -226,6 +316,7 @@ class ReceiptPrinterService {
                 _padRight('', colQty) +
                 _padRight('', colPrice) +
                 _padRight('', colSum),
+            rawEncoding: rawEncoding,
           );
         }
       }
@@ -243,20 +334,21 @@ class ReceiptPrinterService {
           _padRight('', colPrice) +
           _padRight('', colSum),
       bold: true,
+      rawEncoding: rawEncoding,
     );
 
     // Итоговая сумма
     final totalStr = _formatSum(total);
-    _addLine(buf, 'ИТОГО' + _padLeft(totalStr, _lineWidth - 5), bold: true);
+    _addLine(buf, 'ИТОГО' + _padLeft(totalStr, _lineWidth - 5), bold: true, rawEncoding: rawEncoding);
 
     // Дата и время
     final dtStr =
         '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
         '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
-    _addLine(buf, dtStr, bold: true);
+    _addLine(buf, dtStr, bold: true, rawEncoding: rawEncoding);
 
     // Подпись
-    _addLine(buf, _center('Спасибо за покупку!', _lineWidth), bold: true, align: 1);
+    _addLine(buf, _center('Спасибо за покупку!', _lineWidth), bold: true, align: 1, rawEncoding: rawEncoding);
 
     // Подача и отрезка
     buf.add(0x0A);
@@ -333,5 +425,101 @@ class ReceiptPrinterService {
   /// Возвращает список имён принтеров (Windows).
   static Future<List<String>> getAvailablePrinters() async {
     return WindowsPrinter.getAvailablePrinters();
+  }
+
+  // ── Тестовая печать ─────────────────────────────────────────────────────────
+
+  /// Формирует короткий тестовый ESC/POS-чек для проверки кодировки и
+  /// настроек принтера. Печатает кириллицу разного регистра, цифры, знак №
+  /// и краткую сводку по применённым настройкам.
+  static List<int> buildTestReceipt({
+    String rawEncoding = 'cp866_17',
+    bool xprinterCyrillicPreamble = false,
+  }) {
+    final buf = <int>[];
+
+    buf.addAll(_cmdInit());
+    buf.addAll(_cmdCancelKanjiMode());
+    if (xprinterCyrillicPreamble) {
+      buf.addAll(_cmdXprinterCyrillicPreamble());
+    }
+    buf.addAll(_cmdCodePage(_codePageNumber(rawEncoding)));
+
+    _addLine(
+      buf,
+      _center('ТЕСТ ПЕЧАТИ', _lineWidth),
+      bold: true,
+      align: 1,
+      rawEncoding: rawEncoding,
+    );
+    _addSeparator(buf);
+    _addLine(
+      buf,
+      'Кириллица: АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ',
+      rawEncoding: rawEncoding,
+    );
+    _addLine(
+      buf,
+      'строчная:  абвгдеёжзийклмнопрстуфхцчшщъыьэюя',
+      rawEncoding: rawEncoding,
+    );
+    _addLine(buf, 'Цифры: 0123456789  №  —', rawEncoding: rawEncoding);
+    _addLine(buf, 'ASCII: The quick brown fox 1234567890', rawEncoding: rawEncoding);
+    _addSeparator(buf);
+
+    // Сводка настроек
+    final codePage = _codePageNumber(rawEncoding);
+    final encName = rawEncoding.startsWith('cp1251') ? 'Windows-1251' : 'CP866';
+    _addLine(buf, 'Кодировка: $encName', rawEncoding: rawEncoding);
+    _addLine(buf, 'Код. страница (ESC t): $codePage', rawEncoding: rawEncoding);
+    _addLine(
+      buf,
+      'Xprinter-преамбула: ${xprinterCyrillicPreamble ? "вкл" : "выкл"}',
+      rawEncoding: rawEncoding,
+    );
+    _addLine(buf, 'FS . (отмена Kanji): вкл', rawEncoding: rawEncoding);
+
+    _addSeparator(buf);
+    _addLine(
+      buf,
+      _center('Если видите кириллицу — OK', _lineWidth),
+      bold: true,
+      align: 1,
+      rawEncoding: rawEncoding,
+    );
+
+    buf.add(0x0A);
+    buf.add(0x0A);
+    buf.add(0x0A);
+    buf.addAll(_cmdCut());
+    return buf;
+  }
+
+  /// Отправляет тестовый чек RAW-печатью на указанный принтер.
+  /// Если [printerName] пуст или не найден — берёт первый доступный.
+  static Future<void> printTest({
+    required String? printerName,
+    String rawEncoding = 'cp866_17',
+    bool xprinterCyrillicPreamble = false,
+  }) async {
+    final printers = await WindowsPrinter.getAvailablePrinters();
+    final name =
+        printerName != null &&
+            printerName.isNotEmpty &&
+            printers.contains(printerName)
+        ? printerName
+        : (printers.isNotEmpty ? printers.first : null);
+    if (name == null) {
+      throw Exception('Нет доступных принтеров');
+    }
+    final bytes = buildTestReceipt(
+      rawEncoding: rawEncoding,
+      xprinterCyrillicPreamble: xprinterCyrillicPreamble,
+    );
+    await WindowsPrinter.printRawData(
+      printerName: name,
+      data: Uint8List.fromList(bytes),
+      useRawDatatype: true,
+    );
   }
 }

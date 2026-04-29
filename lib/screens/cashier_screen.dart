@@ -1241,6 +1241,8 @@ class _CashierScreenState extends State<CashierScreen> {
         total: state.cartTotal,
         totalQty: totalQty,
         dateTime: dateTime,
+        rawEncoding: widget.storage.receiptRawEncoding,
+        xprinterCyrillicPreamble: widget.storage.receiptRawXprinterPreamble,
       );
       await ReceiptPrinterService.printReceipt(
         printerName: widget.storage.receiptPrinterName,

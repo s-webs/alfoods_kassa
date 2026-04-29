@@ -9,9 +9,13 @@ import '../models/supplier.dart';
 import '../services/api_service.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
+import '../widgets/waybill_analysis_dialog.dart';
 
 class ProductReceiptFormScreen extends StatefulWidget {
-  const ProductReceiptFormScreen({super.key, required this.apiService});
+  const ProductReceiptFormScreen({
+    super.key,
+    required this.apiService,
+  });
 
   final ApiService apiService;
 
@@ -28,11 +32,13 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
   final FocusNode _barcodeFocusNode = FocusNode();
   final TextEditingController _barcodeController = TextEditingController();
   List<String> _images = [];
+  List<String> _localImagePaths = [];
   int? _editingPriceIndex;
   TextEditingController? _priceEditController;
   bool _isSaving = false;
   bool _isBarcodeLoading = false;
   bool _isUploadingImages = false;
+  bool _isAnalyzingWaybill = false;
   String? _error;
 
   @override
@@ -142,7 +148,10 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
           filename: f.name,
         );
         if (!mounted) return;
-        setState(() => _images.add(uploadedPath));
+        setState(() {
+          _images.add(uploadedPath);
+          _localImagePaths.add(path);
+        });
       }
     } catch (e) {
       if (mounted) showToast(context, 'Ошибка загрузки: $e');
@@ -153,8 +162,143 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
   }
 
   void _removeImage(int index) {
-    setState(() => _images.removeAt(index));
+    setState(() {
+      _images.removeAt(index);
+      if (index < _localImagePaths.length) {
+        _localImagePaths.removeAt(index);
+      }
+    });
     _refocusBarcodeField();
+  }
+
+  /// Analyze the last uploaded invoice image with AI, then show
+  /// [WaybillAnalysisDialog] so the user can review and import items.
+  Future<void> _analyzeWaybillWithAI() async {
+    if (_localImagePaths.isEmpty) {
+      showToast(context, 'Сначала загрузите фото накладной');
+      return;
+    }
+
+    // Use the last uploaded local image
+    final path = _localImagePaths.last;
+
+    setState(() => _isAnalyzingWaybill = true);
+
+    try {
+      final result = await widget.apiService.analyzeWaybill(path);
+
+      if (!mounted) return;
+
+      if (result.items.isEmpty) {
+        showToast(context, 'ИИ не распознал товаров на фото');
+        return;
+      }
+
+      // 2. Load all products + saved AI→product mappings in parallel
+      final futures = await Future.wait([
+        widget.apiService.getProducts(active: true),
+        widget.apiService.getWaybillMappings(),
+      ]);
+      final allProducts = futures[0] as List<Product>;
+      final mappings = futures[1] as Map<String, int>;
+
+      if (!mounted) return;
+
+      final productById = {for (final p in allProducts) p.id: p};
+
+      final resolved = <ResolvedWaybillItem>[];
+      for (final aiItem in result.items) {
+        Product? product;
+
+        // 1. Saved mapping (exact ai_name match)
+        final aiName = aiItem.name;
+        if (aiName != null && mappings.containsKey(aiName)) {
+          product = productById[mappings[aiName]];
+        }
+
+        // 2. Barcode match (if no mapping found)
+        if (product == null) {
+          final barcode = aiItem.barcode?.trim();
+          if (barcode != null && barcode.isNotEmpty) {
+            product = allProducts
+                .where((p) => p.barcode == barcode)
+                .firstOrNull;
+          }
+        }
+
+        resolved.add(ResolvedWaybillItem(aiItem: aiItem, product: product));
+      }
+
+      if (!mounted) return;
+
+      // 3. Show dialog and wait for user's selection
+      final selected = await showDialog<List<ResolvedWaybillItem>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => WaybillAnalysisDialog(
+          result: result,
+          resolvedItems: resolved,
+          allProducts: allProducts,
+          apiService: widget.apiService,
+        ),
+      );
+
+      if (!mounted) return;
+      if (selected == null || selected.isEmpty) {
+        _refocusBarcodeField();
+        return;
+      }
+
+      // 4. Import selected items into the receipt
+      int added = 0;
+      for (final item in selected) {
+        if (item.product == null) continue;
+        final product = item.product!;
+        final existingIndex = _items.indexWhere(
+          (e) => e.productId == product.id,
+        );
+        final quantity =
+            item.importQuantity ?? (product.unit == 'pcs' ? 1.0 : 0.1);
+        final price = item.importPrice ?? product.purchasePrice;
+
+        setState(() {
+          if (existingIndex >= 0) {
+            _items[existingIndex].quantity += quantity;
+            _items[existingIndex].price = price;
+          } else {
+            _items.insert(
+              0,
+              CartItem(
+                productId: product.id,
+                name: product.name,
+                price: price,
+                quantity: quantity,
+                unit: product.unit,
+              ),
+            );
+            added++;
+          }
+        });
+      }
+
+      if (mounted) {
+        showToast(
+          context,
+          added > 0
+              ? 'Импортировано позиций: $added'
+              : 'Позиции обновлены',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showToast(context, 'Ошибка анализа: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isAnalyzingWaybill = false);
+        _refocusBarcodeField();
+      }
+    }
   }
 
   String _imageUrl(String path) => widget.apiService.fileUrl(path);
@@ -434,18 +578,51 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
                       label: const Text('Добавить товар вручную'),
                     ),
                     const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: _isUploadingImages
-                          ? null
-                          : _pickAndUploadImages,
-                      icon: _isUploadingImages
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.photo_library_outlined),
-                      label: const Text('Добавить фото накладной'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isUploadingImages
+                                ? null
+                                : _pickAndUploadImages,
+                            icon: _isUploadingImages
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.photo_library_outlined),
+                            label: const Text('Фото накладной'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.tonalIcon(
+                            onPressed: (_isAnalyzingWaybill ||
+                                    _isUploadingImages ||
+                                    _localImagePaths.isEmpty)
+                                ? null
+                                : _analyzeWaybillWithAI,
+                            style: FilledButton.styleFrom(
+                              backgroundColor:
+                                  const Color(0xFF6750A4).withValues(alpha: 0.12),
+                              foregroundColor: const Color(0xFF6750A4),
+                            ),
+                            icon: _isAnalyzingWaybill
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Color(0xFF6750A4),
+                                    ),
+                                  )
+                                : const Icon(Icons.auto_awesome, size: 18),
+                            label: const Text('Анализ ИИ'),
+                          ),
+                        ),
+                      ],
                     ),
                     if (_images.isNotEmpty) ...[
                       const SizedBox(height: 8),
