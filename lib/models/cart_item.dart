@@ -1,6 +1,7 @@
 /// Позиция в корзине — снимок данных на момент добавления (название, цена).
 /// Редактирование name/price в корзине не затрагивает модель Product.
 /// Для сетов: productId = 0, setId != null.
+/// stock — остаток товара на момент добавления (используется только для отображения).
 /// orderIndex — постоянный порядковый номер при добавлении (1, 2, 3...), не меняется при добавлении/удалении других.
 class CartItem {
   final int productId;
@@ -9,6 +10,7 @@ class CartItem {
   double price;
   double quantity;
   final String unit;
+  final double? stock;
   final int orderIndex;
 
   CartItem({
@@ -18,6 +20,7 @@ class CartItem {
     required this.price,
     required this.quantity,
     required this.unit,
+    this.stock,
     this.orderIndex = 0,
   });
 
@@ -28,6 +31,7 @@ class CartItem {
     double? price,
     double? quantity,
     String? unit,
+    double? stock,
     int? orderIndex,
   }) =>
       CartItem(
@@ -37,6 +41,7 @@ class CartItem {
         price: price ?? this.price,
         quantity: quantity ?? this.quantity,
         unit: unit ?? this.unit,
+        stock: stock ?? this.stock,
         orderIndex: orderIndex ?? this.orderIndex,
       );
 

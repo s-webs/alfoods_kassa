@@ -174,6 +174,7 @@ class _CashierScreenState extends State<CashierScreen> {
         price: product.effectivePrice,
         quantity: step,
         unit: product.unit,
+        stock: product.stock,
       ),
     );
   }
@@ -528,7 +529,7 @@ class _CashierScreenState extends State<CashierScreen> {
 
   /// Добавить произвольную позицию в корзину (снимок, product_id: 0).
   Future<void> _showAddSnapshotToCartDialog(String barcode) async {
-    final nameController = TextEditingController(text: 'Товар $barcode');
+    final nameController = TextEditingController(text: '');
     final priceController = TextEditingController(text: '0');
     String unit = 'pcs';
     final quantityController = TextEditingController(text: '1');
@@ -603,15 +604,15 @@ class _CashierScreenState extends State<CashierScreen> {
                     ),
                     FilledButton(
                       onPressed: () {
-                        final name = nameController.text.trim();
+                        final rawName = nameController.text.trim();
+                        final name = rawName.isNotEmpty ? rawName : 'Товар $barcode';
                         final price = double.tryParse(
                           priceController.text.replaceFirst(',', '.').trim(),
                         );
                         final qty = double.tryParse(
                           quantityController.text.replaceFirst(',', '.').trim(),
                         );
-                        if (name.isNotEmpty &&
-                            price != null &&
+                        if (price != null &&
                             price >= 0 &&
                             qty != null &&
                             qty > 0) {
@@ -1606,6 +1607,14 @@ class _CashierScreenState extends State<CashierScreen> {
           const SizedBox(width: 12),
           OutlinedButton.icon(
             onPressed: !_isSelling && !_isAcceptingReturn
+                ? () => _showAddSnapshotToCartDialog('Разовая позиция')
+                : null,
+            icon: const Icon(Icons.receipt_long_outlined, size: 20),
+            label: const Text('Разовая продажа'),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: !_isSelling && !_isAcceptingReturn
                 ? _showBarcodeTestDialog
                 : null,
             icon: const Icon(Icons.qr_code_scanner, size: 20),
@@ -1776,6 +1785,16 @@ class _CashierScreenState extends State<CashierScreen> {
                                         ),
                                       ),
                                     ),
+                              if (item.productId != 0 && item.stock != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Остаток: ${item.unit == "pcs" ? item.stock!.toInt().toString() : item.stock!.toStringAsFixed(2)} ${item.unit}',
+                                  style: TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

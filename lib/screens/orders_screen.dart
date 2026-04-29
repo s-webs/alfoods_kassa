@@ -39,6 +39,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   final _dateFromController = TextEditingController();
   final _dateToController = TextEditingController();
   StreamSubscription? _realtimeSub;
+  final Set<int> _updatingOrderIds = <int>{};
 
   @override
   void initState() {
@@ -133,6 +134,39 @@ class _OrdersScreenState extends State<OrdersScreen> {
   void _applyFilters() {
     _search = _searchController.text.trim().isEmpty ? null : _searchController.text.trim();
     _load();
+  }
+
+  Future<void> _markIssued(Order order) async {
+    if (_updatingOrderIds.contains(order.id)) return;
+    setState(() => _updatingOrderIds.add(order.id));
+    try {
+      final updated = await widget.apiService.updateOrderStatus(
+        order.id,
+        Order.statusIssued,
+      );
+      if (!mounted) return;
+      setState(() {
+        final idx = _orders.indexWhere((o) => o.id == order.id);
+        if (idx >= 0) {
+          _orders[idx] = updated;
+        }
+        _updatingOrderIds.remove(order.id);
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Заказ отмечен как выдан')),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _updatingOrderIds.remove(order.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Не удалось отметить заказ как выдан'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
   }
 
   @override
@@ -304,6 +338,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                               final order = _orders[index];
                               final created =
                                   TimeUtil.toUtcPlus5Wall(order.createdAt);
+                              final canMarkIssued =
+                                  order.status != Order.statusIssued &&
+                                  (order.status == Order.statusNew ||
+                                      order.status == Order.statusInProgress);
+                              final isUpdating = _updatingOrderIds.contains(order.id);
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
@@ -324,7 +363,28 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                       fontSize: 12,
                                     ),
                                   ),
-                                  trailing: const Icon(Icons.chevron_right),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (canMarkIssued)
+                                        IconButton(
+                                          icon: isUpdating
+                                              ? const SizedBox(
+                                                  width: 18,
+                                                  height: 18,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                                )
+                                              : const Icon(Icons.check_circle_outline),
+                                          tooltip: 'Выдан',
+                                          onPressed: isUpdating
+                                              ? null
+                                              : () => _markIssued(order),
+                                        ),
+                                      const Icon(Icons.chevron_right),
+                                    ],
+                                  ),
                                   onTap: () async {
                                     final updated = await context.push<bool>(
                                       '/orders/${order.id}',

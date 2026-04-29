@@ -71,6 +71,12 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
     return '$opened (открыта)';
   }
 
+  String _formatSaleDateTime(DateTime dt) {
+    final t = TimeUtil.toUtcPlus5Wall(dt);
+    return '${t.day.toString().padLeft(2, '0')}.${t.month.toString().padLeft(2, '0')}.${t.year} '
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -168,7 +174,7 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
                           subtitle: Row(
                             children: [
                               Text(
-                                '${sale.totalQty} шт. • #${sale.id}',
+                                '${sale.totalQty} шт. • #${sale.id} • ${_formatSaleDateTime(sale.createdAt)}',
                                 style: TextStyle(
                                   color: AppColors.muted,
                                   fontSize: 12,

@@ -171,6 +171,44 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
     _refocusBarcodeField();
   }
 
+  Future<void> _showImagePreview(String path) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Накладная'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          ),
+          body: Container(
+            color: Colors.black,
+            alignment: Alignment.center,
+            child: InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 5,
+              child: Image.network(
+                _imageUrl(path),
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Text(
+                    'Не удалось загрузить изображение',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (mounted) _refocusBarcodeField();
+  }
+
   /// Analyze the last uploaded invoice image with AI, then show
   /// [WaybillAnalysisDialog] so the user can review and import items.
   Future<void> _analyzeWaybillWithAI() async {
@@ -249,6 +287,11 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
         return;
       }
 
+      // 4. Apply supplier from AI analysis:
+      //    - if supplier exists in DB -> select it in dropdown
+      //    - otherwise fill manual supplier name field
+      _applySupplierFromAi(result.supplier);
+
       // 4. Import selected items into the receipt
       int added = 0;
       for (final item in selected) {
@@ -299,6 +342,53 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
         _refocusBarcodeField();
       }
     }
+  }
+
+  String _normalizeSupplierName(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  void _applySupplierFromAi(String? aiSupplierName) {
+    final rawName = aiSupplierName?.trim();
+    if (rawName == null || rawName.isEmpty) return;
+
+    final normalizedAi = _normalizeSupplierName(rawName);
+    if (normalizedAi.isEmpty) return;
+
+    Supplier? matched;
+
+    // 1) Exact normalized match
+    for (final supplier in _suppliers) {
+      final normalizedSupplier = _normalizeSupplierName(supplier.name);
+      if (normalizedSupplier == normalizedAi) {
+        matched = supplier;
+        break;
+      }
+    }
+
+    // 2) Partial contains match (both directions)
+    if (matched == null) {
+      for (final supplier in _suppliers) {
+        final normalizedSupplier = _normalizeSupplierName(supplier.name);
+        if (normalizedSupplier.contains(normalizedAi) ||
+            normalizedAi.contains(normalizedSupplier)) {
+          matched = supplier;
+          break;
+        }
+      }
+    }
+
+    setState(() {
+      if (matched != null) {
+        _selectedSupplierId = matched.id;
+        _supplierNameController.clear();
+      } else {
+        _selectedSupplierId = null;
+        _supplierNameController.text = rawName;
+      }
+    });
   }
 
   String _imageUrl(String path) => widget.apiService.fileUrl(path);
@@ -636,13 +726,16 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
                             final path = _images[index];
                             return Stack(
                               children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    _imageUrl(path),
-                                    width: 76,
-                                    height: 76,
-                                    fit: BoxFit.cover,
+                                GestureDetector(
+                                  onTap: () => _showImagePreview(path),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      _imageUrl(path),
+                                      width: 76,
+                                      height: 76,
+                                      fit: BoxFit.cover,
+                                    ),
                                   ),
                                 ),
                                 Positioned(

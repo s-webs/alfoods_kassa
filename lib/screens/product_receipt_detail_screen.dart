@@ -250,6 +250,44 @@ class _ProductReceiptDetailScreenState
     _refocusBarcodeField();
   }
 
+  Future<void> _showImagePreview(String path) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Накладная'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          ),
+          body: Container(
+            color: Colors.black,
+            alignment: Alignment.center,
+            child: InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 5,
+              child: Image.network(
+                _imageUrl(path),
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Text(
+                    'Не удалось загрузить изображение',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (mounted) _refocusBarcodeField();
+  }
+
   String _imageUrl(String path) => widget.apiService.fileUrl(path);
 
   void _updateQuantity(int index, double delta) {
@@ -538,13 +576,16 @@ class _ProductReceiptDetailScreenState
                         final path = _images[index];
                         return Stack(
                           children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                _imageUrl(path),
-                                width: 76,
-                                height: 76,
-                                fit: BoxFit.cover,
+                            GestureDetector(
+                              onTap: () => _showImagePreview(path),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.network(
+                                  _imageUrl(path),
+                                  width: 76,
+                                  height: 76,
+                                  fit: BoxFit.cover,
+                                ),
                               ),
                             ),
                             Positioned(

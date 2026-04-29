@@ -240,11 +240,11 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => context.go('/cashier'),
                 ),
                 _NavItem(
-                  icon: PhosphorIconsRegular.listBullets,
-                  label: 'Категории',
-                  isSelected: currentLocation == '/categories' ||
-                      currentLocation.startsWith('/categories/'),
-                  onTap: () => context.go('/categories'),
+                  icon: PhosphorIconsRegular.package,
+                  label: 'Поступления',
+                  isSelected: currentLocation == '/product-receipts' ||
+                      currentLocation.startsWith('/product-receipts/'),
+                  onTap: () => context.go('/product-receipts'),
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.cheese,
@@ -252,27 +252,6 @@ class _Sidebar extends StatelessWidget {
                   isSelected: currentLocation == '/products' ||
                       currentLocation.startsWith('/products/'),
                   onTap: () => context.go('/products'),
-                ),
-                _NavItem(
-                  icon: PhosphorIconsRegular.buildings,
-                  label: 'Покупатели',
-                  isSelected: currentLocation == '/counterparties' ||
-                      currentLocation.startsWith('/counterparties/'),
-                  onTap: () => context.go('/counterparties'),
-                ),
-                _NavItem(
-                  icon: PhosphorIconsRegular.truck,
-                  label: 'Поставщики',
-                  isSelected: currentLocation == '/suppliers' ||
-                      currentLocation.startsWith('/suppliers/'),
-                  onTap: () => context.go('/suppliers'),
-                ),
-                _NavItem(
-                  icon: PhosphorIconsRegular.package,
-                  label: 'Сеты',
-                  isSelected: currentLocation == '/sets' ||
-                      currentLocation.startsWith('/sets/'),
-                  onTap: () => context.go('/sets'),
                 ),
                 _NavItem(
                   icon: PhosphorIconsRegular.money,
@@ -289,17 +268,38 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => context.go('/orders'),
                 ),
                 _NavItem(
+                  icon: PhosphorIconsRegular.truck,
+                  label: 'Поставщики',
+                  isSelected: currentLocation == '/suppliers' ||
+                      currentLocation.startsWith('/suppliers/'),
+                  onTap: () => context.go('/suppliers'),
+                ),
+                _NavItem(
+                  icon: PhosphorIconsRegular.listBullets,
+                  label: 'Категории',
+                  isSelected: currentLocation == '/categories' ||
+                      currentLocation.startsWith('/categories/'),
+                  onTap: () => context.go('/categories'),
+                ),
+                _NavItem(
+                  icon: PhosphorIconsRegular.buildings,
+                  label: 'Покупатели',
+                  isSelected: currentLocation == '/counterparties' ||
+                      currentLocation.startsWith('/counterparties/'),
+                  onTap: () => context.go('/counterparties'),
+                ),
+                _NavItem(
+                  icon: PhosphorIconsRegular.package,
+                  label: 'Сеты',
+                  isSelected: currentLocation == '/sets' ||
+                      currentLocation.startsWith('/sets/'),
+                  onTap: () => context.go('/sets'),
+                ),
+                _NavItem(
                   icon: PhosphorIconsRegular.creditCard,
                   label: 'Должники',
                   isSelected: currentLocation == '/debtors',
                   onTap: () => context.go('/debtors'),
-                ),
-                _NavItem(
-                  icon: PhosphorIconsRegular.package,
-                  label: 'Поступления',
-                  isSelected: currentLocation == '/product-receipts' ||
-                      currentLocation.startsWith('/product-receipts/'),
-                  onTap: () => context.go('/product-receipts'),
                 ),
                 _NavItem(
                   icon: Icons.task_alt,
