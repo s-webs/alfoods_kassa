@@ -11,6 +11,8 @@ import 'screens/counterparties_screen.dart';
 import 'screens/counterparty_form_screen.dart';
 import 'screens/debtors_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/nkt_product_details_screen.dart';
+import 'screens/nkt_sync_screen.dart';
 import 'screens/order_detail_screen.dart';
 import 'screens/orders_screen.dart';
 import 'screens/print_labels_screen.dart';
@@ -288,6 +290,24 @@ class App extends StatelessWidget {
               pageBuilder: (context, state) => NoTransitionPage(
                 child: SaleSearchScreen(apiService: apiService),
               ),
+            ),
+            GoRoute(
+              path: '/nkt',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: NktSyncScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/nkt/:id',
+              pageBuilder: (context, state) {
+                final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+                return NoTransitionPage(
+                  child: NktProductDetailsScreen(
+                    apiService: apiService,
+                    productId: id,
+                  ),
+                );
+              },
             ),
             GoRoute(
               path: '/settings',

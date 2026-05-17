@@ -308,6 +308,13 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => context.go('/tasks'),
                 ),
                 _NavItem(
+                  icon: PhosphorIconsRegular.barcode,
+                  label: 'НКТ',
+                  isSelected: currentLocation == '/nkt' ||
+                      currentLocation.startsWith('/nkt/'),
+                  onTap: () => context.go('/nkt'),
+                ),
+                _NavItem(
                   icon: PhosphorIconsRegular.gear,
                   label: 'Настройки',
                   isSelected: currentLocation == '/settings',

@@ -15,6 +15,23 @@ class Product {
   final Map<String, dynamic>? meta;
   final List<String>? images;
 
+  // НКТ (Национальный каталог товаров Казахстана)
+  final String? nktNtin;
+  final int? nktProductId;
+  final String? nktGtin;
+  final String? nktNameRu;
+  final String? nktNameKk;
+  final bool? nktIsMarkedeac;
+  final bool? nktIsSocial;
+  final String? nktMeasureCode;
+  final String? nktMeasureName;
+  final bool? nktIsDeactivated;
+  final String? nktDeactivationReason;
+  final String? nktDuplicateOfNtin;
+  final DateTime? nktModifiedAt;
+  final DateTime? nktCheckedAt;
+  final bool? nktNotFound;
+
   const Product({
     required this.id,
     this.categoryId,
@@ -31,12 +48,46 @@ class Product {
     this.isActive = true,
     this.meta,
     this.images,
+    this.nktNtin,
+    this.nktProductId,
+    this.nktGtin,
+    this.nktNameRu,
+    this.nktNameKk,
+    this.nktIsMarkedeac,
+    this.nktIsSocial,
+    this.nktMeasureCode,
+    this.nktMeasureName,
+    this.nktIsDeactivated,
+    this.nktDeactivationReason,
+    this.nktDuplicateOfNtin,
+    this.nktModifiedAt,
+    this.nktCheckedAt,
+    this.nktNotFound,
   });
+
+  bool get isLinkedToNkt => nktNtin != null && nktNtin!.isNotEmpty;
+  bool get isNktNotFound => nktNotFound == true && !isLinkedToNkt;
 
   static double _parseDouble(dynamic v) {
     if (v == null) return 0;
     if (v is num) return v.toDouble();
     return double.tryParse(v.toString()) ?? 0;
+  }
+
+  static DateTime? _parseDate(dynamic v) {
+    if (v == null) return null;
+    if (v is DateTime) return v;
+    return DateTime.tryParse(v.toString());
+  }
+
+  static bool? _parseBool(dynamic v) {
+    if (v == null) return null;
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    final s = v.toString().toLowerCase();
+    if (s == 'true' || s == '1') return true;
+    if (s == 'false' || s == '0') return false;
+    return null;
   }
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -69,6 +120,21 @@ class Product {
       isActive: json['is_active'] == null ? true : json['is_active'] as bool,
       meta: meta,
       images: images,
+      nktNtin: json['nkt_ntin'] as String?,
+      nktProductId: json['nkt_product_id'] as int?,
+      nktGtin: json['nkt_gtin'] as String?,
+      nktNameRu: json['nkt_name_ru'] as String?,
+      nktNameKk: json['nkt_name_kk'] as String?,
+      nktIsMarkedeac: _parseBool(json['nkt_is_markedeac']),
+      nktIsSocial: _parseBool(json['nkt_is_social']),
+      nktMeasureCode: json['nkt_measure_code'] as String?,
+      nktMeasureName: json['nkt_measure_name'] as String?,
+      nktIsDeactivated: _parseBool(json['nkt_is_deactivated']),
+      nktDeactivationReason: json['nkt_deactivation_reason'] as String?,
+      nktDuplicateOfNtin: json['nkt_duplicate_of_ntin'] as String?,
+      nktModifiedAt: _parseDate(json['nkt_modified_at']),
+      nktCheckedAt: _parseDate(json['nkt_checked_at']),
+      nktNotFound: _parseBool(json['nkt_not_found']),
     );
   }
 

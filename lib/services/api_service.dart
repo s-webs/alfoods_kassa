@@ -222,6 +222,63 @@ class ApiService {
   }
 
   // ---------------------------------------------------------------------------
+  // НКТ (Национальный каталог товаров) — поиск, привязка, обновление, отвязка.
+  // Один штрихкод в НКТ может соответствовать нескольким товарам (variants).
+  // ---------------------------------------------------------------------------
+
+  /// Search NKT by product barcode. Returns variants list + cache flag.
+  /// Result map: { variants: List<Map>, variants_count: int, cached: bool, barcode: String }.
+  Future<NktSearchResult> nktSearch(
+    int productId, {
+    String? barcode,
+    bool forceFresh = false,
+  }) async {
+    final data = <String, dynamic>{};
+    if (barcode != null && barcode.trim().isNotEmpty) {
+      data['barcode'] = barcode.trim();
+    }
+    if (forceFresh) data['force_fresh'] = true;
+
+    final response = await _apiClient.dio.post(
+      'api/products/$productId/nkt/search',
+      data: data.isEmpty ? null : data,
+    );
+    final json = response.data as Map<String, dynamic>;
+    return NktSearchResult.fromJson(json);
+  }
+
+  /// Link product to a specific NTIN from the latest cached search result.
+  Future<Product> nktLink(int productId, String ntin) async {
+    final response = await _apiClient.dio.post(
+      'api/products/$productId/nkt/link',
+      data: {'ntin': ntin},
+    );
+    final json = response.data as Map<String, dynamic>;
+    final productJson = json['product'] as Map<String, dynamic>;
+    return Product.fromJson(productJson);
+  }
+
+  /// Refresh NKT fields for already-linked product (re-queries NKT and updates).
+  Future<Product> nktRefresh(int productId) async {
+    final response = await _apiClient.dio.post(
+      'api/products/$productId/nkt/refresh',
+    );
+    final json = response.data as Map<String, dynamic>;
+    final productJson = json['product'] as Map<String, dynamic>;
+    return Product.fromJson(productJson);
+  }
+
+  /// Unlink product from NKT (clears all nkt_* fields).
+  Future<Product> nktUnlink(int productId) async {
+    final response = await _apiClient.dio.delete(
+      'api/products/$productId/nkt',
+    );
+    final json = response.data as Map<String, dynamic>;
+    final productJson = json['product'] as Map<String, dynamic>;
+    return Product.fromJson(productJson);
+  }
+
+  // ---------------------------------------------------------------------------
   // Waybill AI name→product mappings
   // Stored on the backend so they work across devices (mobile app, kassa, etc.)
   // ---------------------------------------------------------------------------
@@ -847,4 +904,98 @@ class WaybillAnalyzeException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Один товар из ответа НКТ. На один штрихкод может приходить несколько таких.
+class NktVariant {
+  NktVariant({
+    required this.raw,
+    this.ntinCode,
+    this.gtin,
+    this.nameRu,
+    this.nameKk,
+    this.isMarkedeac,
+    this.isSocial,
+    this.measureCode,
+    this.measureName,
+    this.isDeactivated,
+    this.deactivationReason,
+    this.duplicateOfNtin,
+  });
+
+  final Map<String, dynamic> raw;
+  final String? ntinCode;
+  final String? gtin;
+  final String? nameRu;
+  final String? nameKk;
+  final bool? isMarkedeac;
+  final bool? isSocial;
+  final String? measureCode;
+  final String? measureName;
+  final bool? isDeactivated;
+  final String? deactivationReason;
+  final String? duplicateOfNtin;
+
+  factory NktVariant.fromJson(Map<String, dynamic> json) {
+    bool? parseBool(dynamic v) {
+      if (v == null) return null;
+      if (v is bool) return v;
+      if (v is num) return v != 0;
+      final s = v.toString().toLowerCase();
+      if (s == 'true' || s == '1') return true;
+      if (s == 'false' || s == '0') return false;
+      return null;
+    }
+
+    final measure = json['measure'];
+    String? measureCode;
+    String? measureName;
+    if (measure is Map) {
+      measureCode = measure['code']?.toString();
+      measureName = measure['name']?.toString();
+    }
+
+    return NktVariant(
+      raw: json,
+      ntinCode: json['ntin_code']?.toString(),
+      gtin: json['gtin']?.toString(),
+      nameRu: json['name_ru']?.toString(),
+      nameKk: json['name_kk']?.toString(),
+      isMarkedeac: parseBool(json['is_markedeac']),
+      isSocial: parseBool(json['is_social']),
+      measureCode: measureCode,
+      measureName: measureName,
+      isDeactivated: parseBool(json['ntin_isdeactivated']),
+      deactivationReason: json['ntin_deactivationreason']?.toString(),
+      duplicateOfNtin: json['ntin_duplicateofproduct']?.toString(),
+    );
+  }
+}
+
+class NktSearchResult {
+  NktSearchResult({
+    required this.variants,
+    required this.variantsCount,
+    required this.cached,
+    this.barcode,
+  });
+
+  final List<NktVariant> variants;
+  final int variantsCount;
+  final bool cached;
+  final String? barcode;
+
+  factory NktSearchResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['variants'] as List<dynamic>? ?? const [];
+    final variants = raw
+        .whereType<Map<String, dynamic>>()
+        .map(NktVariant.fromJson)
+        .toList();
+    return NktSearchResult(
+      variants: variants,
+      variantsCount: (json['variants_count'] as num?)?.toInt() ?? variants.length,
+      cached: json['cached'] == true,
+      barcode: json['barcode']?.toString(),
+    );
+  }
 }
