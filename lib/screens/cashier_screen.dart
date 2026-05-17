@@ -605,7 +605,9 @@ class _CashierScreenState extends State<CashierScreen> {
                     FilledButton(
                       onPressed: () {
                         final rawName = nameController.text.trim();
-                        final name = rawName.isNotEmpty ? rawName : 'Товар $barcode';
+                        final name = rawName.isNotEmpty
+                            ? rawName
+                            : 'Товар $barcode';
                         final price = double.tryParse(
                           priceController.text.replaceFirst(',', '.').trim(),
                         );
@@ -1233,8 +1235,10 @@ class _CashierScreenState extends State<CashierScreen> {
       }
       final id = saleId ?? state.lastSavedSaleId!;
       final dateTime = TimeUtil.nowUtcPlus5Wall();
-      final totalQty =
-          state.cart.fold<double>(0, (sum, item) => sum + item.quantity);
+      final totalQty = state.cart.fold<double>(
+        0,
+        (sum, item) => sum + item.quantity,
+      );
       final bytes = ReceiptPrinterService.buildReceipt(
         saleId: id,
         cashierName: _cashierName,
@@ -1292,8 +1296,10 @@ class _CashierScreenState extends State<CashierScreen> {
         return;
       }
       final id = saleId ?? state.lastSavedSaleId!;
-      final totalQty =
-          state.cart.fold<double>(0, (sum, item) => sum + item.quantity);
+      final totalQty = state.cart.fold<double>(
+        0,
+        (sum, item) => sum + item.quantity,
+      );
       final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
         saleId: id,
         cashierName: _cashierName,
@@ -1440,11 +1446,11 @@ class _CashierScreenState extends State<CashierScreen> {
             if (itemCount > 0) ...[
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: (isActive ? activeColor : AppColors.muted)
-                      .withValues(alpha: 0.18),
+                  color: (isActive ? activeColor : AppColors.muted).withValues(
+                    alpha: 0.18,
+                  ),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -1785,7 +1791,8 @@ class _CashierScreenState extends State<CashierScreen> {
                                         ),
                                       ),
                                     ),
-                              if (item.productId != 0 && item.stock != null) ...[
+                              if (item.productId != 0 &&
+                                  item.stock != null) ...[
                                 const SizedBox(height: 4),
                                 Text(
                                   'Остаток: ${item.unit == "pcs" ? item.stock!.toInt().toString() : item.stock!.toStringAsFixed(2)} ${item.unit}',
