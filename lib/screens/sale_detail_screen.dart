@@ -10,13 +10,17 @@ import '../models/cart_item.dart';
 import '../models/cashier.dart';
 import '../models/product.dart';
 import '../models/product_set.dart';
+import '../models/pos_payment_record.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../services/kaspi_pos_service.dart';
+import '../services/pos_payment_store.dart';
 import '../models/counterparty.dart';
 import '../models/debt_payment.dart';
 import '../widgets/add_product_dialog.dart';
 import '../widgets/invoice_dialog.dart';
+import '../widgets/kaspi_pos_payment_dialog.dart';
 import '../widgets/pay_debt_dialog.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
@@ -40,6 +44,9 @@ class SaleDetailScreen extends StatefulWidget {
 }
 
 class _SaleDetailScreenState extends State<SaleDetailScreen> {
+  late final KaspiPosService _kaspiPosService;
+  late final PosPaymentStore _posPaymentStore;
+
   Sale? _sale;
   List<CartItem> _items = [];
   List<Cashier> _cashiers = [];
@@ -59,6 +66,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _kaspiPosService = KaspiPosService(widget.storage);
+    _posPaymentStore = PosPaymentStore(widget.storage);
     _load();
   }
 
@@ -530,14 +539,35 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     }
   }
 
+  PosPaymentRecord? _resolvePosRecord() {
+    final fromApi = _sale?.posTransaction;
+    if (fromApi != null &&
+        fromApi.transactionId.isNotEmpty &&
+        fromApi.method.isNotEmpty) {
+      return PosPaymentRecord(
+        method: fromApi.method,
+        transactionId: fromApi.transactionId,
+        amount: fromApi.amount.round(),
+        processId: fromApi.processId ?? '',
+        paidAt: DateTime.now(),
+      );
+    }
+    return _posPaymentStore.get(widget.saleId);
+  }
+
   Future<void> _returnSale() async {
     if (_sale == null) return;
+    final posRecord = _resolvePosRecord();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Оформить возврат?'),
-        content: const Text(
-          'Вернуть товары в остатки? Продажа получит статус «Возврат» и редактировать её будет нельзя.',
+        content: Text(
+          posRecord != null
+              ? 'Сначала будет выполнен возврат на терминале Kaspi (${posRecord.amount} ₸), '
+                  'затем товары вернутся в остатки. Продажа получит статус «Возврат».'
+              : 'Вернуть товары в остатки? Продажа получит статус «Возврат» '
+                  'и редактировать её будет нельзя.',
         ),
         actions: [
           TextButton(
@@ -553,8 +583,53 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
       ),
     );
     if (confirm != true || !mounted) return;
+
+    if (posRecord != null) {
+      if (!widget.storage.isPosConfigured) {
+        showToast(
+          context,
+          'Настройте Kaspi POS в настройках для возврата на терминале',
+        );
+        return;
+      }
+      try {
+        final start = await _kaspiPosService.startRefund(
+          amount: posRecord.amount,
+          method: posRecord.method,
+          transactionId: posRecord.transactionId,
+        );
+        if (!mounted) return;
+
+        final result = await KaspiPosPaymentDialog.show(
+          context: context,
+          amount: posRecord.amount,
+          processId: start.processId,
+          title: 'Возврат на терминале',
+          poll: (processId, onUpdate) => _kaspiPosService.pollUntilFinished(
+            processId,
+            onUpdate: onUpdate,
+          ),
+          actualize: _kaspiPosService.actualize,
+        );
+
+        if (!mounted) return;
+        if (result == null || result.status != 'success') {
+          final msg = result?.message ?? 'Возврат на терминале не выполнен';
+          showToast(context, msg);
+          return;
+        }
+      } on KaspiPosException catch (e) {
+        if (mounted) showToast(context, e.message);
+        return;
+      } catch (e) {
+        if (mounted) showToast(context, 'Ошибка POS: $e');
+        return;
+      }
+    }
+
     try {
       final updated = await widget.apiService.returnSale(widget.saleId);
+      await _posPaymentStore.remove(widget.saleId);
       if (!mounted) return;
       setState(() {
         _sale = updated;

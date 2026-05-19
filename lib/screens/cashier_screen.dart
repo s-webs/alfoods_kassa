@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../core/storage.dart';
@@ -10,16 +9,27 @@ import '../models/category.dart';
 import '../models/product.dart';
 import '../models/product_set.dart';
 import '../models/shift.dart';
+import '../models/pos_payment_record.dart';
+import '../models/fiscal_receipt.dart';
+import '../models/pos_transaction_dto.dart';
+import '../models/sale_payment_method.dart';
 import '../services/api_service.dart';
+import '../services/api_webkassa_exception.dart';
+import '../services/cashier_resolver_service.dart';
+import '../services/checkout_service.dart';
+import '../services/kaspi_pos_service.dart';
+import '../services/pos_payment_store.dart';
 import '../state/cashier_state.dart';
-import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
+import '../services/webkassa_receipt_print_service.dart';
 import '../utils/barcode_generator.dart';
 import '../utils/time_util.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
 import '../widgets/credit_sale_dialog.dart';
-import '../widgets/invoice_dialog.dart';
+import '../widgets/fiscal_receipt_dialog.dart';
+import '../widgets/kaspi_pos_payment_dialog.dart';
+import '../widgets/pos_payment_method_dialog.dart';
 
 class CashierScreen extends StatefulWidget {
   const CashierScreen({
@@ -41,6 +51,14 @@ class _CashierScreenState extends State<CashierScreen> {
   bool _isOpeningShift = false;
   bool _isClosingShift = false;
   bool _isSelling = false;
+  bool _isPosPaying = false;
+  bool _isPaying = false;
+  late final KaspiPosService _kaspiPosService;
+  late final PosPaymentStore _posPaymentStore;
+  late final CashierResolverService _cashierResolver;
+  late final CheckoutService _checkoutService;
+  late final WebkassaReceiptPrintService _webkassaReceiptPrintService;
+  int? _resolvedCashierId;
   bool _isAcceptingReturn = false;
   String? _error;
   final FocusNode _barcodeFocusNode = FocusNode();
@@ -57,6 +75,12 @@ class _CashierScreenState extends State<CashierScreen> {
   @override
   void initState() {
     super.initState();
+    _kaspiPosService = KaspiPosService(widget.storage);
+    _posPaymentStore = PosPaymentStore(widget.storage);
+    _cashierResolver = CashierResolverService(widget.storage);
+    _checkoutService = CheckoutService(widget.apiService);
+    _webkassaReceiptPrintService =
+        WebkassaReceiptPrintService(widget.storage);
     _loadShifts();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _barcodeFocusNode.requestFocus();
@@ -83,9 +107,13 @@ class _CashierScreenState extends State<CashierScreen> {
     });
     try {
       final shifts = await widget.apiService.getShifts();
+      final cashierId = await _cashierResolver.resolveCashierId(
+        widget.apiService,
+      );
       if (!mounted) return;
       setState(() {
         _shifts = shifts;
+        _resolvedCashierId = cashierId;
         _isLoading = false;
         // Сбрасываем флаги открытия/закрытия смены после успешной загрузки,
         // чтобы не оставались "залипшие" спиннеры от предыдущих операций.
@@ -382,50 +410,6 @@ class _CashierScreenState extends State<CashierScreen> {
       ),
     );
     if (mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _barcodeFocusNode.canRequestFocus) {
-          _barcodeFocusNode.requestFocus();
-        }
-      });
-    }
-  }
-
-  /// Эмуляция сканера: ввод штрихкода вручную для проверки без реального сканера.
-  Future<void> _showBarcodeTestDialog() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Тест сканера штрихкода'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Штрихкод',
-              hintText: 'Введите штрихкод товара',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (_) => Navigator.of(ctx).pop(controller.text.trim()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(null),
-              child: const Text('Отмена'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-              child: const Text('Добавить'),
-            ),
-          ],
-        );
-      },
-    );
-    if (result != null && result.isNotEmpty && mounted) {
-      _onBarcodeSubmitted(result);
-      // Фокус будет восстановлен в _onBarcodeSubmitted, поэтому здесь не нужно
-    } else if (mounted) {
-      // Если диалог закрыт без результата, восстанавливаем фокус
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _barcodeFocusNode.canRequestFocus) {
           _barcodeFocusNode.requestFocus();
@@ -981,40 +965,265 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
-  Future<void> _sell() async {
-    final state = CashierStateScope.of(context);
-    if (state.cart.isEmpty) {
-      showToast(context, 'Корзина пуста');
+  Future<void> _openPosPayment() async {
+    if (!_validateCheckoutPreconditions(requireCashier: true)) {
+      return;
+    }
+
+    final method = await PosPaymentMethodDialog.show(
+      context,
+      kaspiEnabled: widget.storage.isPosConfigured,
+    );
+    if (method == null || !mounted) {
       _refocusBarcodeField();
       return;
     }
-    final shift = _currentOpenShift;
-    if (shift == null) {
-      showToast(context, 'Смена не открыта');
+
+    if (method.requiresKaspiTerminal) {
+      await _checkoutWithKaspi(method);
+    } else {
+      await _checkoutOfdDirect(method);
+    }
+  }
+
+  Future<void> _checkoutOfdDirect(SalePaymentMethod method) async {
+    final state = CashierStateScope.of(context);
+    final shift = _currentOpenShift!;
+
+    setState(() {
+      _isPosPaying = true;
+      _error = null;
+    });
+
+    try {
+      final result = await _checkoutService.finalizeOfdSale(
+        cashierId: _resolvedCashierId!,
+        shiftId: shift.id,
+        items: state.cart.map((c) => c.toJson()).toList(),
+        paymentMethod: method,
+        draftSaleId: state.lastSavedSaleId,
+      );
+      if (!mounted) return;
+      await _showFiscalSuccess(result.fiscal);
+      state.clearCart();
+      setState(() => _isPosPaying = false);
+      _refocusBarcodeField();
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _isPosPaying = false;
+      });
+      if (e.fiscal != null) {
+        await FiscalReceiptDialog.show(context, fiscal: e.fiscal!);
+      }
+      _refocusBarcodeField();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Не удалось оформить продажу';
+        _isPosPaying = false;
+      });
+      _refocusBarcodeField();
+    }
+  }
+
+  Future<void> _checkoutWithKaspi(SalePaymentMethod method) async {
+    final state = CashierStateScope.of(context);
+    final shift = _currentOpenShift!;
+
+    if (!widget.storage.isPosConfigured) {
+      showToast(
+        context,
+        'Настройте Kaspi POS: укажите IP и зарегистрируйте кассу в настройках',
+      );
+      _refocusBarcodeField();
+      return;
+    }
+
+    final amount = state.cartTotal.round();
+    if (amount <= 0) {
+      showToast(context, 'Сумма оплаты должна быть больше 0 ₸');
       _refocusBarcodeField();
       return;
     }
 
     setState(() {
-      _isSelling = true;
+      _isPosPaying = true;
       _error = null;
     });
+
     try {
-      final saleId = await _ensureSaleSaved();
-      if (saleId == null) {
-        throw Exception('Не удалось сохранить продажу');
-      }
+      final start = await _kaspiPosService.startPayment(amount);
       if (!mounted) return;
-      state.clearCart();
-      setState(() => _isSelling = false);
-      if (mounted) {
-        showToast(context, 'Продажа оформлена');
+
+      final result = await KaspiPosPaymentDialog.show(
+        context: context,
+        amount: amount,
+        processId: start.processId,
+        poll: (processId, onUpdate) => _kaspiPosService.pollUntilFinished(
+          processId,
+          onUpdate: onUpdate,
+        ),
+        actualize: _kaspiPosService.actualize,
+      );
+
+      if (!mounted) return;
+      if (result == null) {
+        setState(() => _isPosPaying = false);
         _refocusBarcodeField();
+        return;
       }
+
+      if (result.status != 'success') {
+        showToast(context, result.message ?? 'Оплата не выполнена');
+        setState(() => _isPosPaying = false);
+        _refocusBarcodeField();
+        return;
+      }
+
+      final terminalMethod =
+          result.method ?? result.chequeInfo?['method']?.toString() ?? 'card';
+      final transactionId = result.transactionId ??
+          result.chequeInfo?['orderNumber']?.toString() ??
+          result.chequeInfo?['rrn']?.toString();
+
+      if (transactionId == null || transactionId.isEmpty) {
+        showToast(context, 'Нет ID транзакции терминала');
+        setState(() => _isPosPaying = false);
+        _refocusBarcodeField();
+        return;
+      }
+
+      final fiscalResult = await _checkoutService.finalizeOfdSale(
+        cashierId: _resolvedCashierId!,
+        shiftId: shift.id,
+        items: state.cart.map((c) => c.toJson()).toList(),
+        paymentMethod: method,
+        draftSaleId: state.lastSavedSaleId,
+        posTransaction: PosTransactionDto(
+          method: terminalMethod,
+          transactionId: transactionId,
+          amount: amount.toDouble(),
+          processId: result.processId,
+          paidAt: DateTime.now(),
+        ),
+      );
+
+      await _posPaymentStore.save(
+        fiscalResult.sale.id,
+        PosPaymentRecord(
+          method: terminalMethod,
+          transactionId: transactionId,
+          amount: amount,
+          processId: result.processId,
+          paidAt: DateTime.now(),
+        ),
+      );
+
+      if (!mounted) return;
+      await _showFiscalSuccess(fiscalResult.fiscal);
+      state.clearCart();
+      setState(() => _isPosPaying = false);
+      _refocusBarcodeField();
+    } on KaspiPosException catch (e) {
+      if (!mounted) return;
+      setState(() => _isPosPaying = false);
+      showToast(context, e.message);
+      _refocusBarcodeField();
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      setState(() => _isPosPaying = false);
+      showToast(
+        context,
+        'Оплата на терминале прошла, чек WebKassa не пробит: ${e.message}',
+      );
+      _refocusBarcodeField();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isPosPaying = false);
+      showToast(context, 'Ошибка POS: $e');
+      _refocusBarcodeField();
+    }
+  }
+
+  Future<void> _payWithoutOfd() async {
+    await _completeNonOfdCheckout(
+      SalePaymentMethod.payment,
+      printReceiptAfter: true,
+    );
+  }
+
+  bool _validateCheckoutPreconditions({bool requireCashier = false}) {
+    final state = CashierStateScope.of(context);
+    if (state.cart.isEmpty) {
+      showToast(context, 'Корзина пуста');
+      _refocusBarcodeField();
+      return false;
+    }
+    if (_currentOpenShift == null) {
+      showToast(context, 'Смена не открыта');
+      _refocusBarcodeField();
+      return false;
+    }
+    if (requireCashier && _resolvedCashierId == null) {
+      showToast(
+        context,
+        'Нет привязки кассира к вашему пользователю для WebKassa. '
+        'Настройте кассира в админке и привяжите ККМ.',
+      );
+      _refocusBarcodeField();
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _completeNonOfdCheckout(
+    SalePaymentMethod method, {
+    bool printReceiptAfter = false,
+  }) async {
+    final state = CashierStateScope.of(context);
+    if (!_validateCheckoutPreconditions()) {
+      return;
+    }
+    final shift = _currentOpenShift!;
+
+    setState(() {
+      if (method == SalePaymentMethod.payment) {
+        _isPaying = true;
+      } else {
+        _isSelling = true;
+      }
+      _error = null;
+    });
+
+    try {
+      final result = await _checkoutService.finalizeNonOfdSale(
+        cashierId: _resolvedCashierId,
+        shiftId: shift.id,
+        items: state.cart.map((c) => c.toJson()).toList(),
+        paymentMethod: method,
+        draftSaleId: state.lastSavedSaleId,
+      );
+      if (!mounted) return;
+
+      if (printReceiptAfter || result.printReceipt) {
+        await _printReceipt(saleId: result.sale.id);
+      } else {
+        showToast(context, 'Продажа оформлена');
+      }
+
+      state.clearCart();
+      setState(() {
+        _isPaying = false;
+        _isSelling = false;
+      });
+      _refocusBarcodeField();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = 'Не удалось оформить продажу';
+        _isPaying = false;
         _isSelling = false;
       });
       _refocusBarcodeField();
@@ -1055,14 +1264,14 @@ class _CashierScreenState extends State<CashierScreen> {
     try {
       final items = state.cart.map((c) => c.toJson()).toList();
       if (state.lastSavedSaleId == null) {
-        final sale = await widget.apiService.createSale(
+        final result = await widget.apiService.createSale(
           shiftId: shift.id,
           items: items,
           counterpartyId: creditResult.counterpartyId,
           isOnCredit: true,
         );
         if (!mounted) return;
-        state.setLastSavedSaleId(sale.id);
+        state.setLastSavedSaleId(result.sale.id);
       } else {
         await widget.apiService.updateSale(
           state.lastSavedSaleId!,
@@ -1184,6 +1393,46 @@ class _CashierScreenState extends State<CashierScreen> {
     });
   }
 
+  Future<void> _showFiscalSuccess(FiscalReceipt? fiscal) async {
+    if (!mounted) {
+      return;
+    }
+    if (fiscal == null) {
+      showToast(context, 'Продажа оформлена');
+      return;
+    }
+
+    try {
+      final printed =
+          await _webkassaReceiptPrintService.printFiscalReceipt(fiscal);
+      if (!mounted) return;
+
+      if (printed) {
+        final check = fiscal.checkNumber;
+        final printer = widget.storage.receiptPrinterName?.trim();
+        final suffix = printer != null && printer.isNotEmpty
+            ? ' на «$printer»'
+            : '';
+        showToast(
+          context,
+          check != null && check.isNotEmpty
+              ? 'Чек $check напечатан$suffix'
+              : 'Фискальный чек WebKassa напечатан$suffix',
+        );
+        return;
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showToast(
+        context,
+        'Не удалось напечатать чек: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
+      return;
+    }
+
+    showToast(context, 'Продажа оформлена, данные чека для печати не получены');
+  }
+
   /// Сохраняет текущую корзину как продажу (если ещё не сохранена) и возвращает id чека.
   Future<int?> _ensureSaleSaved() async {
     final state = CashierStateScope.of(context);
@@ -1194,16 +1443,21 @@ class _CashierScreenState extends State<CashierScreen> {
     }
     try {
       final items = state.cart.map((c) => c.toJson()).toList();
-      final sale = state.lastSavedSaleId == null
+      final result = state.lastSavedSaleId == null
           ? await widget.apiService.createSale(shiftId: shift.id, items: items)
-          : await widget.apiService.updateSale(
-              state.lastSavedSaleId!,
-              shiftId: shift.id,
-              items: items,
-            );
+          : null;
+      if (state.lastSavedSaleId == null) {
+        if (!mounted) return null;
+        state.setLastSavedSaleId(result!.sale.id);
+        return result.sale.id;
+      }
+      await widget.apiService.updateSale(
+        state.lastSavedSaleId!,
+        shiftId: shift.id,
+        items: items,
+      );
       if (!mounted) return null;
-      state.setLastSavedSaleId(sale.id);
-      return sale.id;
+      return state.lastSavedSaleId;
     } catch (_) {
       if (mounted) {
         showToast(context, 'Не удалось сохранить продажу');
@@ -1212,7 +1466,7 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
-  Future<void> _printReceipt() async {
+  Future<void> _printReceipt({int? saleId}) async {
     final state = CashierStateScope.of(context);
     if (state.cart.isEmpty) {
       _refocusBarcodeField();
@@ -1225,15 +1479,15 @@ class _CashierScreenState extends State<CashierScreen> {
       return;
     }
     try {
-      final saleId = await _ensureSaleSaved();
-      if (saleId == null && state.lastSavedSaleId == null) {
+      final savedId = saleId ?? await _ensureSaleSaved();
+      if (savedId == null && state.lastSavedSaleId == null) {
         if (mounted) {
           showToast(context, 'Не удалось сохранить продажу для чека');
           _refocusBarcodeField();
         }
         return;
       }
-      final id = saleId ?? state.lastSavedSaleId!;
+      final id = savedId ?? state.lastSavedSaleId!;
       final dateTime = TimeUtil.nowUtcPlus5Wall();
       final totalQty = state.cart.fold<double>(
         0,
@@ -1278,57 +1532,6 @@ class _CashierScreenState extends State<CashierScreen> {
       );
       _refocusBarcodeField();
     }
-  }
-
-  Future<void> _saveReceiptPdf() async {
-    final state = CashierStateScope.of(context);
-    if (state.cart.isEmpty) {
-      _refocusBarcodeField();
-      return;
-    }
-    try {
-      final saleId = await _ensureSaleSaved();
-      if (saleId == null && state.lastSavedSaleId == null) {
-        if (mounted) {
-          showToast(context, 'Не удалось сохранить продажу для чека');
-          _refocusBarcodeField();
-        }
-        return;
-      }
-      final id = saleId ?? state.lastSavedSaleId!;
-      final totalQty = state.cart.fold<double>(
-        0,
-        (sum, item) => sum + item.quantity,
-      );
-      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
-        saleId: id,
-        cashierName: _cashierName,
-        items: state.cart,
-        total: state.cartTotal,
-        totalQty: totalQty,
-        dateTime: TimeUtil.nowUtcPlus5Wall(),
-      );
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Сохранить чек в PDF',
-        fileName: 'chek-$id.pdf',
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-      );
-      if (!mounted) return;
-      if (path != null && path.isNotEmpty) {
-        final savePath = path.endsWith('.pdf') ? path : '$path.pdf';
-        await File(savePath).writeAsBytes(pdfBytes);
-        if (!mounted) return;
-        showToast(context, 'Чек сохранён: $savePath');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      showToast(
-        context,
-        'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
-      );
-    }
-    _refocusBarcodeField();
   }
 
   String _formatDate(DateTime dt) {
@@ -1609,6 +1812,11 @@ class _CashierScreenState extends State<CashierScreen> {
                 : null,
             icon: const Icon(Icons.add),
             label: const Text('Добавить вручную'),
+            style: FilledButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           OutlinedButton.icon(
@@ -1617,14 +1825,6 @@ class _CashierScreenState extends State<CashierScreen> {
                 : null,
             icon: const Icon(Icons.receipt_long_outlined, size: 20),
             label: const Text('Разовая продажа'),
-          ),
-          const SizedBox(width: 12),
-          OutlinedButton.icon(
-            onPressed: !_isSelling && !_isAcceptingReturn
-                ? _showBarcodeTestDialog
-                : null,
-            icon: const Icon(Icons.qr_code_scanner, size: 20),
-            label: const Text('Тест сканера'),
           ),
         ],
       ),
@@ -1878,14 +2078,18 @@ class _CashierScreenState extends State<CashierScreen> {
   Widget _buildActionBlock(BuildContext context) {
     final state = CashierStateScope.of(context);
     final cartNotEmpty = state.cart.isNotEmpty;
-    final showPrintPdf = cartNotEmpty && !state.isReturnMode;
     final isAcceptReturnEnabled =
         state.isReturnMode && cartNotEmpty && !_isAcceptingReturn;
-    final isSellEnabled =
+    final isCheckoutBusy = _isSelling || _isPosPaying || _isPaying;
+    final isBaseCheckoutEnabled =
         !state.isReturnMode &&
         _currentOpenShift != null &&
         cartNotEmpty &&
-        !_isSelling;
+        !isCheckoutBusy;
+    final isPosCheckoutEnabled =
+        isBaseCheckoutEnabled && _resolvedCashierId != null;
+    final isNonOfdCheckoutEnabled = isBaseCheckoutEnabled;
+    final isCreditSaleEnabled = isBaseCheckoutEnabled;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1913,35 +2117,7 @@ class _CashierScreenState extends State<CashierScreen> {
               ),
             ),
           const Spacer(),
-          if (showPrintPdf) ...[
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: _saveReceiptPdf,
-              icon: const Icon(Icons.picture_as_pdf, size: 20),
-              label: const Text('В PDF'),
-            ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: () => showInvoiceDialog(
-                context: context,
-                apiService: widget.apiService,
-                items: List.from(state.cart),
-                storage: widget.storage,
-              ),
-              icon: const Icon(Icons.description, size: 20),
-              label: const Text('Накладная'),
-            ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: isSellEnabled ? _sellOnCredit : null,
-              icon: const Icon(Icons.credit_card, size: 20),
-              label: const Text('Продать в долг'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.danger,
-                side: const BorderSide(color: AppColors.danger),
-              ),
-            ),
-            const SizedBox(width: 12),
+          if (cartNotEmpty && !state.isReturnMode) ...[
             OutlinedButton.icon(
               onPressed: !_isResetting && !_isAcceptingReturn
                   ? _resetCart
@@ -1961,9 +2137,13 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
             const SizedBox(width: 12),
             OutlinedButton.icon(
-              onPressed: _printReceipt,
-              icon: const Icon(Icons.print, size: 20),
-              label: const Text('Печать чека'),
+              onPressed: isCreditSaleEnabled ? _sellOnCredit : null,
+              icon: const Icon(Icons.credit_card, size: 20),
+              label: const Text('Продать в долг'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+                side: const BorderSide(color: AppColors.danger),
+              ),
             ),
             const SizedBox(width: 12),
           ],
@@ -1985,9 +2165,25 @@ class _CashierScreenState extends State<CashierScreen> {
               style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
             )
           else ...[
+            OutlinedButton.icon(
+              onPressed: isPosCheckoutEnabled ? _openPosPayment : null,
+              icon: _isPosPaying
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.point_of_sale, size: 20),
+              label: Text(_isPosPaying ? 'POS...' : 'POS Оплата'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+            const SizedBox(width: 12),
             FilledButton.icon(
-              onPressed: isSellEnabled ? _sell : null,
-              icon: _isSelling
+              onPressed: isNonOfdCheckoutEnabled ? _payWithoutOfd : null,
+              icon: _isPaying
                   ? const SizedBox(
                       width: 20,
                       height: 20,
@@ -1996,9 +2192,14 @@ class _CashierScreenState extends State<CashierScreen> {
                         color: Colors.white,
                       ),
                     )
-                  : const Icon(Icons.point_of_sale),
-              label: Text(_isSelling ? 'Оформление...' : 'Продать'),
-              style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+                  : const Icon(Icons.shopping_cart_checkout),
+              label: Text(_isPaying ? 'Оформление...' : 'Продать'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF43A047),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
             ),
           ],
         ],

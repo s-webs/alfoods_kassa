@@ -22,6 +22,16 @@ class Storage {
   static const _keyTimeLastSyncMs = 'time_last_sync_ms';
   static const _keyWaybillAiModel = 'waybill_ai_model';
   static const _keyWaybillAiApiKey = 'waybill_ai_api_key';
+  static const _keyPosHost = 'pos_host';
+  static const _keyPosPort = 'pos_port';
+  static const _keyPosRegisterName = 'pos_register_name';
+  static const _keyPosAccessToken = 'pos_access_token';
+  static const _keyPosRefreshToken = 'pos_refresh_token';
+  static const _keyPosTokenExpiration = 'pos_token_expiration';
+  static const _keyPosTerminalId = 'pos_terminal_id';
+  static const _keyPosSkipSslVerify = 'pos_skip_ssl_verify';
+  static const _keyPosPaymentsJson = 'pos_payments_json';
+  static const _keySelectedCashierId = 'selected_cashier_id';
 
   final SharedPreferences _prefs;
 
@@ -202,11 +212,108 @@ class Storage {
   int? get timeLastSyncMs => _prefs.getInt(_keyTimeLastSyncMs);
   Future<void> setTimeLastSyncMs(int value) => _prefs.setInt(_keyTimeLastSyncMs, value);
 
+  // --- Kaspi Smart POS ---
+
+  String? get posHost => _prefs.getString(_keyPosHost);
+  Future<void> setPosHost(String? value) async {
+    if (value == null || value.trim().isEmpty) {
+      await _prefs.remove(_keyPosHost);
+    } else {
+      await _prefs.setString(_keyPosHost, value.trim());
+    }
+  }
+
+  int get posPort => _prefs.getInt(_keyPosPort) ?? 8080;
+  Future<void> setPosPort(int value) => _prefs.setInt(_keyPosPort, value);
+
+  String? get posRegisterName => _prefs.getString(_keyPosRegisterName);
+  Future<void> setPosRegisterName(String? value) async {
+    if (value == null || value.trim().isEmpty) {
+      await _prefs.remove(_keyPosRegisterName);
+    } else {
+      await _prefs.setString(_keyPosRegisterName, value.trim());
+    }
+  }
+
+  String? get posAccessToken => _prefs.getString(_keyPosAccessToken);
+  Future<void> setPosAccessToken(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyPosAccessToken);
+    } else {
+      await _prefs.setString(_keyPosAccessToken, value);
+    }
+  }
+
+  String? get posRefreshToken => _prefs.getString(_keyPosRefreshToken);
+  Future<void> setPosRefreshToken(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyPosRefreshToken);
+    } else {
+      await _prefs.setString(_keyPosRefreshToken, value);
+    }
+  }
+
+  String? get posTokenExpiration => _prefs.getString(_keyPosTokenExpiration);
+  Future<void> setPosTokenExpiration(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyPosTokenExpiration);
+    } else {
+      await _prefs.setString(_keyPosTokenExpiration, value);
+    }
+  }
+
+  String? get posTerminalId => _prefs.getString(_keyPosTerminalId);
+  Future<void> setPosTerminalId(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyPosTerminalId);
+    } else {
+      await _prefs.setString(_keyPosTerminalId, value);
+    }
+  }
+
+  bool get posSkipSslVerify => _prefs.getBool(_keyPosSkipSslVerify) ?? false;
+  Future<void> setPosSkipSslVerify(bool value) async {
+    await _prefs.setBool(_keyPosSkipSslVerify, value);
+  }
+
+  Map<String, dynamic> get posPaymentsJson {
+    final s = _prefs.getString(_keyPosPaymentsJson);
+    if (s == null) return {};
+    final decoded = jsonDecode(s);
+    if (decoded is Map<String, dynamic>) return decoded;
+    return {};
+  }
+
+  Future<void> setPosPaymentsJson(Map<String, dynamic> json) async {
+    if (json.isEmpty) {
+      await _prefs.remove(_keyPosPaymentsJson);
+    } else {
+      await _prefs.setString(_keyPosPaymentsJson, jsonEncode(json));
+    }
+  }
+
+  bool get isPosConfigured =>
+      posHost != null &&
+      posHost!.isNotEmpty &&
+      posAccessToken != null &&
+      posAccessToken!.isNotEmpty;
+
+  int? get selectedCashierId => _prefs.getInt(_keySelectedCashierId);
+
+  Future<void> setSelectedCashierId(int? id) async {
+    if (id == null) {
+      await _prefs.remove(_keySelectedCashierId);
+    } else {
+      await _prefs.setInt(_keySelectedCashierId, id);
+    }
+  }
+
   Future<void> clearAuth() async {
     await _prefs.remove(_keyToken);
     await _prefs.remove(_keyUser);
     await _prefs.remove(_keyCentrifugoWsUrl);
     await _prefs.remove(_keyCentrifugoToken);
+    await _prefs.remove(_keySelectedCashierId);
   }
 
   Future<void> clearAll() async {

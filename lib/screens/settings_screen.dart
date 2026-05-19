@@ -6,6 +6,9 @@ import '../core/theme.dart';
 import '../core/storage.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../models/webkassa_cashbox.dart';
+import '../services/cashier_resolver_service.dart';
+import '../services/kaspi_pos_service.dart';
 import '../services/label_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
 import '../utils/toast.dart';
@@ -41,6 +44,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _entrepreneurManagerController = TextEditingController();
   final _entrepreneurAddressController = TextEditingController();
 
+  final _posHostController = TextEditingController();
+  final _posPortController = TextEditingController();
+  final _posRegisterNameController = TextEditingController();
+  bool _posSkipSslVerify = false;
+  String? _posTerminalId;
+  String? _posTokenExpiration;
+  bool _posBusy = false;
+  String? _posStatusMessage;
+  late final KaspiPosService _kaspiPosService;
+  late final CashierResolverService _cashierResolver;
+
+  bool _webkassaBusy = false;
+  String? _webkassaStatusMessage;
+  Map<String, dynamic>? _webkassaHealth;
+  List<WebkassaCashbox> _webkassaCashboxes = [];
+
   LabelTemplate _labelTemplate = LabelTemplate.defaultLabel();
   LabelTemplate _priceTagTemplate = LabelTemplate.defaultPriceTag();
   Product? _previewProduct;
@@ -51,6 +70,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _kaspiPosService = KaspiPosService(widget.storage);
+    _cashierResolver = CashierResolverService(widget.storage);
     _selectedPrinterName = widget.storage.receiptPrinterName;
     _printMode = widget.storage.receiptPrintMode;
     _rawEncoding = widget.storage.receiptRawEncoding;
@@ -61,9 +82,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.storage.entrepreneurManager ?? '';
     _entrepreneurAddressController.text =
         widget.storage.entrepreneurAddress ?? '';
+    _posHostController.text = widget.storage.posHost ?? '';
+    _posPortController.text = widget.storage.posPort.toString();
+    _posRegisterNameController.text =
+        widget.storage.posRegisterName ?? 'AfoodsKassa';
+    _posSkipSslVerify = widget.storage.posSkipSslVerify;
+    _posTerminalId = widget.storage.posTerminalId;
+    _posTokenExpiration = widget.storage.posTokenExpiration;
     _loadTemplates();
     _loadPreviewProduct();
     _loadPrinters();
+    _loadWebkassaInfo();
+  }
+
+  Future<void> _loadWebkassaInfo() async {
+    setState(() => _webkassaBusy = true);
+    try {
+      final health = await widget.apiService.getWebkassaHealth();
+      final cashboxes = await widget.apiService.getWebkassaCashboxes();
+      if (!mounted) return;
+      setState(() {
+        _webkassaHealth = health;
+        _webkassaCashboxes = cashboxes;
+        _webkassaStatusMessage = null;
+        _webkassaBusy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _webkassaBusy = false;
+        _webkassaStatusMessage = 'Не удалось загрузить статус WebKassa: $e';
+      });
+    }
+  }
+
+  Future<void> _checkWebkassaConnection() async {
+    setState(() {
+      _webkassaBusy = true;
+      _webkassaStatusMessage = null;
+    });
+    try {
+      await widget.apiService.refreshWebkassaSession();
+      await _cashierResolver.refreshCashierId(widget.apiService);
+      await _loadWebkassaInfo();
+      if (!mounted) return;
+      setState(() {
+        _webkassaStatusMessage = 'Связь с WebKassa проверена.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _webkassaBusy = false;
+        _webkassaStatusMessage = 'Ошибка: $e';
+      });
+    }
   }
 
   @override
@@ -72,7 +144,127 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _entrepreneurBinController.dispose();
     _entrepreneurManagerController.dispose();
     _entrepreneurAddressController.dispose();
+    _posHostController.dispose();
+    _posPortController.dispose();
+    _posRegisterNameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _savePosSettings() async {
+    await widget.storage.setPosHost(_posHostController.text.trim());
+    final port = int.tryParse(_posPortController.text.trim());
+    if (port != null && port > 0) {
+      await widget.storage.setPosPort(port);
+    }
+    await widget.storage.setPosRegisterName(
+      _posRegisterNameController.text.trim(),
+    );
+    await widget.storage.setPosSkipSslVerify(_posSkipSslVerify);
+    if (mounted) {
+      showToast(context, 'Настройки терминала сохранены');
+    }
+  }
+
+  Future<void> _posRegister() async {
+    await _savePosSettings();
+    final name = _posRegisterNameController.text.trim();
+    if (name.isEmpty) {
+      showToast(context, 'Укажите имя кассы');
+      return;
+    }
+    setState(() {
+      _posBusy = true;
+      _posStatusMessage = null;
+    });
+    try {
+      final tokens = await _kaspiPosService.register(name: name);
+      if (!mounted) return;
+      setState(() {
+        _posTokenExpiration = tokens.expirationDate.toIso8601String();
+        _posStatusMessage = 'Касса зарегистрирована';
+      });
+      showToast(
+        context,
+        'Регистрация успешна. Токен до ${tokens.expirationDate}',
+      );
+    } on KaspiPosException catch (e) {
+      if (mounted) {
+        setState(() => _posStatusMessage = e.message);
+        showToast(context, e.message);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _posStatusMessage = e.toString());
+        showToast(context, 'Ошибка регистрации: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _posBusy = false);
+    }
+  }
+
+  Future<void> _posRevokeToken() async {
+    final name = _posRegisterNameController.text.trim();
+    final refresh = widget.storage.posRefreshToken;
+    if (name.isEmpty || refresh == null || refresh.isEmpty) {
+      showToast(context, 'Сначала зарегистрируйте кассу');
+      return;
+    }
+    setState(() {
+      _posBusy = true;
+      _posStatusMessage = null;
+    });
+    try {
+      final tokens = await _kaspiPosService.revoke(
+        name: name,
+        refreshToken: refresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _posTokenExpiration = tokens.expirationDate.toIso8601String();
+        _posStatusMessage = 'Токен обновлён';
+      });
+      showToast(context, 'Токен обновлён');
+    } on KaspiPosException catch (e) {
+      if (mounted) {
+        setState(() => _posStatusMessage = e.message);
+        showToast(context, e.message);
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка: $e');
+    } finally {
+      if (mounted) setState(() => _posBusy = false);
+    }
+  }
+
+  Future<void> _posTestConnection() async {
+    await _savePosSettings();
+    if (!widget.storage.isPosConfigured) {
+      showToast(context, 'Сначала зарегистрируйте кассу на терминале');
+      return;
+    }
+    setState(() {
+      _posBusy = true;
+      _posStatusMessage = null;
+    });
+    try {
+      final info = await _kaspiPosService.deviceInfo();
+      if (!mounted) return;
+      setState(() {
+        _posTerminalId = info.terminalId;
+        _posStatusMessage =
+            'Связь OK. Терминал ${info.terminalId}, POS №${info.posNum}';
+      });
+      showToast(context, 'Связь с терминалом установлена');
+    } on KaspiPosException catch (e) {
+      if (mounted) {
+        setState(() => _posStatusMessage = e.message);
+        showToast(context, e.message);
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка: $e');
+    } finally {
+      if (mounted) setState(() => _posBusy = false);
+    }
   }
 
   void _loadTemplates() {
@@ -419,6 +611,202 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ' ',
                       style: TextStyle(color: AppColors.muted, fontSize: 13),
                     ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'WebKassa',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Фискализация при «Продать» и POS. Настройка API — на сервере (.env).',
+                    style: TextStyle(color: AppColors.muted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_webkassaHealth != null) ...[
+                    Text(
+                      'Сервер: configured=${_webkassaHealth!['configured']}, '
+                      'token=${_webkassaHealth!['token_present']}, '
+                      'env=${_webkassaHealth!['environment'] ?? '—'}',
+                      style: TextStyle(color: AppColors.muted, fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (widget.storage.selectedCashierId != null)
+                    Text(
+                      'Кассир в приложении: ID ${widget.storage.selectedCashierId}',
+                      style: TextStyle(color: AppColors.muted, fontSize: 13),
+                    ),
+                  if (_webkassaCashboxes.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    ..._webkassaCashboxes.map(
+                      (c) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          '${c.name} (${c.cashboxUniqueNumber})'
+                          '${c.cashierName != null ? ' — ${c.cashierName}' : ''}',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (_webkassaStatusMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _webkassaStatusMessage!,
+                      style: TextStyle(color: AppColors.muted, fontSize: 13),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton(
+                        onPressed: _webkassaBusy ? null : _loadWebkassaInfo,
+                        child: const Text('Обновить'),
+                      ),
+                      FilledButton(
+                        onPressed:
+                            _webkassaBusy ? null : _checkWebkassaConnection,
+                        child: _webkassaBusy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Проверить связь'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Kaspi Smart POS',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Терминал и касса должны быть в одной локальной сети. '
+                    'На терминале: «Защита интеграции» → «Настроить доступ» → '
+                    'нажмите «Зарегистрировать» здесь и «Разрешить» на экране POS.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _posHostController,
+                    decoration: const InputDecoration(
+                      labelText: 'IP или DNS терминала',
+                      border: OutlineInputBorder(),
+                      hintText: '192.168.1.100',
+                    ),
+                    onFieldSubmitted: (_) => _savePosSettings(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _posPortController,
+                    decoration: const InputDecoration(
+                      labelText: 'Порт',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                    onFieldSubmitted: (_) => _savePosSettings(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _posRegisterNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Имя кассы (для регистрации)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onFieldSubmitted: (_) => _savePosSettings(),
+                  ),
+                  SwitchListTile(
+                    title: const Text('Не проверять SSL-сертификат'),
+                    subtitle: const Text(
+                      'Включите при подключении по IP-адресу',
+                    ),
+                    value: _posSkipSslVerify,
+                    onChanged: (v) async {
+                      setState(() => _posSkipSslVerify = v);
+                      await widget.storage.setPosSkipSslVerify(v);
+                    },
+                  ),
+                  if (_posTerminalId != null && _posTerminalId!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'ID терминала: $_posTerminalId',
+                        style: TextStyle(color: AppColors.muted, fontSize: 13),
+                      ),
+                    ),
+                  if (_posTokenExpiration != null &&
+                      _posTokenExpiration!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Токен до: $_posTokenExpiration',
+                        style: TextStyle(color: AppColors.muted, fontSize: 13),
+                      ),
+                    ),
+                  if (_posStatusMessage != null) ...[
+                    Text(
+                      _posStatusMessage!,
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton(
+                        onPressed: _posBusy ? null : _savePosSettings,
+                        child: const Text('Сохранить'),
+                      ),
+                      OutlinedButton(
+                        onPressed: _posBusy ? null : _posRegister,
+                        child: _posBusy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Зарегистрировать'),
+                      ),
+                      OutlinedButton(
+                        onPressed: _posBusy ? null : _posTestConnection,
+                        child: const Text('Проверить связь'),
+                      ),
+                      OutlinedButton(
+                        onPressed: _posBusy ? null : _posRevokeToken,
+                        child: const Text('Обновить токен'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

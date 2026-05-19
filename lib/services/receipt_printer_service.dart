@@ -4,8 +4,11 @@ import 'package:printing/printing.dart';
 import 'package:windows_printer/windows_printer.dart';
 
 import '../models/cart_item.dart';
+import '../models/webkassa_print_line.dart';
+import '../utils/webkassa_receipt_layout.dart';
 import '../services/receipt_pdf_service.dart';
 import 'pdf_printer_plugin.dart';
+import 'webkassa_receipt_pdf_service.dart';
 
 /// Печать товарного чека на термопринтер 80мм в формате Almaty Foods.
 ///
@@ -200,6 +203,29 @@ class ReceiptPrinterService {
 
   /// GS V 0 — полная отрезка бумаги
   static List<int> _cmdCut() => [_GS, 0x56, 0x00];
+
+  /// GS ( k — печать QR-кода (модель 2).
+  static void _appendQrCode(
+    List<int> buf,
+    String data, {
+    String rawEncoding = 'cp866_17',
+  }) {
+    final encoded = _encodeText(data, rawEncoding);
+    final storeLen = encoded.length + 3;
+    final pL = storeLen & 0xFF;
+    final pH = (storeLen >> 8) & 0xFF;
+
+    buf.addAll(_cmdAlign(1));
+    buf.addAll([
+      _GS, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00,
+      _GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x06,
+      _GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x31,
+      _GS, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30,
+      ...encoded,
+      _GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30,
+      0x0A,
+    ]);
+  }
 
   // ── Строки чека ─────────────────────────────────────────────────────────────
 
@@ -493,6 +519,128 @@ class ReceiptPrinterService {
     buf.add(0x0A);
     buf.addAll(_cmdCut());
     return buf;
+  }
+
+  /// Формирует ESC/POS байты фискального чека WebKassa из [print_lines] API.
+  static List<int> buildWebkassaReceipt({
+    required List<WebkassaPrintLine> lines,
+    String rawEncoding = 'cp866_17',
+    bool xprinterCyrillicPreamble = false,
+  }) {
+    final sorted = List<WebkassaPrintLine>.from(lines)
+      ..sort((a, b) => a.order.compareTo(b.order));
+    final leftFlags = WebkassaReceiptLayout.leftAlignFlags(sorted);
+
+    final buf = <int>[];
+    buf.addAll(_cmdInit());
+    buf.addAll(_cmdCancelKanjiMode());
+    if (xprinterCyrillicPreamble) {
+      buf.addAll(_cmdXprinterCyrillicPreamble());
+    }
+    buf.addAll(_cmdCodePage(_codePageNumber(rawEncoding)));
+
+    for (var i = 0; i < sorted.length; i++) {
+      final line = sorted[i];
+      final alignLeft = WebkassaReceiptLayout.isLeftAligned(i, leftFlags);
+
+      switch (line.type) {
+        case 2:
+          if (line.value.isNotEmpty) {
+            _appendQrCode(buf, line.value, rawEncoding: rawEncoding);
+          }
+          break;
+        case 1:
+          // Изображения (логотип) пока пропускаем — текстовые строки и QR покрывают чек.
+          break;
+        default:
+          _addLine(
+            buf,
+            line.value,
+            bold: line.style == 1,
+            align: alignLeft ? 0 : 1,
+            rawEncoding: rawEncoding,
+          );
+      }
+    }
+
+    buf.add(0x0A);
+    buf.add(0x0A);
+    buf.addAll(_cmdCut());
+    return buf;
+  }
+
+  /// Есть ли в [lines] хотя бы одна печатаемая строка (текст, QR или картинка).
+  static bool hasPrintableWebkassaLines(List<WebkassaPrintLine> lines) {
+    for (final line in lines) {
+      if (line.value.trim().isEmpty) continue;
+      if (line.type == 0 || line.type == 1 || line.type == 2) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static Future<String> _resolveWindowsPrinter(String? printerName) async {
+    final printers = await WindowsPrinter.getAvailablePrinters();
+    if (printerName != null && printerName.isNotEmpty) {
+      if (!printers.contains(printerName)) {
+        throw Exception(
+          'Принтер «$printerName» не найден. Выберите принтер в настройках.',
+        );
+      }
+      return printerName;
+    }
+    if (printers.isEmpty) {
+      throw Exception('Нет доступных принтеров');
+    }
+    return printers.first;
+  }
+
+  /// Печатает фискальный чек WebKassa (тот же режим, что и товарный чек в настройках).
+  static Future<void> printWebkassaReceipt({
+    required List<WebkassaPrintLine> lines,
+    required String? printerName,
+    required String printMode,
+    String rawEncoding = 'cp866_17',
+    bool xprinterCyrillicPreamble = false,
+  }) async {
+    if (lines.isEmpty) {
+      throw Exception('Нет данных чека WebKassa для печати');
+    }
+    if (!hasPrintableWebkassaLines(lines)) {
+      throw Exception('Чек WebKassa не содержит текста для печати');
+    }
+
+    final name = await _resolveWindowsPrinter(printerName);
+
+    if (printMode == 'pdf_direct' || printMode == 'pdf') {
+      final pdfBytes = await WebkassaReceiptPdfService.buildPdf(lines);
+      if (printMode == 'pdf') {
+        await Printing.layoutPdf(onLayout: (format) async => pdfBytes);
+        return;
+      }
+      final success = await PdfPrinterPlugin.printPdf(
+        pdfBytes: pdfBytes,
+        printerName: name,
+        printSettings: 'noscale,monochrome',
+      );
+      if (!success) {
+        throw Exception('Не удалось отправить фискальный чек на печать (PDF)');
+      }
+      return;
+    }
+
+    final bytes = buildWebkassaReceipt(
+      lines: lines,
+      rawEncoding: rawEncoding,
+      xprinterCyrillicPreamble: xprinterCyrillicPreamble,
+    );
+
+    await WindowsPrinter.printRawData(
+      printerName: name,
+      data: Uint8List.fromList(bytes),
+      useRawDatatype: true,
+    );
   }
 
   /// Отправляет тестовый чек RAW-печатью на указанный принтер.

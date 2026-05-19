@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../core/api_client.dart';
 import '../core/storage.dart';
+import 'api_webkassa_exception.dart';
 import 'image_optimizer.dart';
 import '../models/category.dart';
 import '../models/cashier.dart';
@@ -12,11 +13,14 @@ import '../models/product.dart';
 import '../models/product_receipt.dart';
 import '../models/product_set.dart';
 import '../models/sale.dart';
+import '../models/sale_create_result.dart';
+import '../models/sale_payment_method.dart';
 import '../models/shift.dart';
 import '../models/supplier.dart';
 import '../models/task.dart';
 import '../models/user.dart';
 import '../models/waybill_analysis.dart';
+import '../models/webkassa_cashbox.dart';
 import '../utils/time_util.dart';
 
 /// Result of resolving a barcode: either a product or a set.
@@ -510,24 +514,79 @@ class ApiService {
     return Sale.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<Sale> createSale({
+  Future<SaleCreateResult> createSale({
     int? cashierId,
     int? shiftId,
     int? counterpartyId,
     bool isOnCredit = false,
+    bool fiscalize = false,
+    SalePaymentMethod? paymentMethod,
+    List<Map<String, dynamic>>? payments,
+    Map<String, dynamic>? posTransaction,
+    String? customerXin,
+    String? customerEmail,
+    String? customerPhone,
     required List<Map<String, dynamic>> items,
   }) async {
-    final response = await _apiClient.dio.post(
-      'api/sales',
-      data: {
-        'cashier_id': cashierId,
-        'shift_id': shiftId,
-        'counterparty_id': counterpartyId,
-        'is_on_credit': isOnCredit,
-        'items': items,
-      },
-    );
-    return Sale.fromJson(response.data as Map<String, dynamic>);
+    final data = <String, dynamic>{
+      'cashier_id': cashierId,
+      'shift_id': shiftId,
+      'counterparty_id': counterpartyId,
+      'is_on_credit': isOnCredit,
+      'items': items,
+    };
+
+    if (paymentMethod != null) {
+      data['payment_method'] = paymentMethod.apiValue;
+    }
+
+    if (fiscalize) {
+      data['fiscalize'] = true;
+      data['payments'] = payments ?? [];
+      if (customerXin != null && customerXin.isNotEmpty) {
+        data['customer_xin'] = customerXin;
+      }
+      if (customerEmail != null && customerEmail.isNotEmpty) {
+        data['customer_email'] = customerEmail;
+      }
+      if (customerPhone != null && customerPhone.isNotEmpty) {
+        data['customer_phone'] = customerPhone;
+      }
+    }
+
+    if (posTransaction != null) {
+      data['pos_transaction'] = posTransaction;
+    }
+
+    final expectsFiscal = fiscalize ||
+        (paymentMethod != null && paymentMethod.requiresFiscalization);
+
+    try {
+      final response = await _apiClient.dio.post('api/sales', data: data);
+      return SaleCreateResult.fromResponse(response.data);
+    } on DioException catch (e) {
+      if (expectsFiscal && e.response != null) {
+        throw ApiWebkassaException.fromDio(e);
+      }
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getWebkassaHealth() async {
+    final response = await _apiClient.dio.get('api/webkassa/health');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<WebkassaCashbox>> getWebkassaCashboxes() async {
+    final response = await _apiClient.dio.get('api/webkassa/cashboxes');
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => WebkassaCashbox.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> refreshWebkassaSession() async {
+    await _apiClient.dio.post('api/webkassa/session/refresh');
   }
 
   Future<Sale> updateSale(int id, {

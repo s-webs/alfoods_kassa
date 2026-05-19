@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
 import '../core/storage.dart';
 import '../services/api_service.dart';
+import '../services/cashier_resolver_service.dart';
 import '../services/realtime_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -66,6 +67,9 @@ class _LoginScreenState extends State<LoginScreen> {
         email: email,
         password: password,
       );
+
+      await CashierResolverService(widget.storage)
+          .resolveCashierId(widget.apiService);
 
       if (!mounted) return;
       await widget.realtimeService.connect();
