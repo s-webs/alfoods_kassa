@@ -4,6 +4,8 @@ class SaleItem {
   final double price;
   final double quantity;
   final String unit;
+  final int? setId;
+  final double returnedQuantity;
 
   const SaleItem({
     required this.productId,
@@ -11,15 +13,22 @@ class SaleItem {
     required this.price,
     required this.quantity,
     required this.unit,
+    this.setId,
+    this.returnedQuantity = 0,
   });
+
+  double get remainingQuantity =>
+      (quantity - returnedQuantity).clamp(0, double.infinity);
 
   factory SaleItem.fromJson(Map<String, dynamic> json) {
     return SaleItem(
       productId: _parseInt(json['product_id']),
+      setId: json['set_id'] != null ? _parseInt(json['set_id']) : null,
       name: json['name']?.toString() ?? '',
       price: _parseDouble(json['price']),
       quantity: _parseDouble(json['quantity']),
       unit: json['unit']?.toString() ?? 'pcs',
+      returnedQuantity: _parseDouble(json['returned_quantity']),
     );
   }
 
@@ -37,6 +46,7 @@ class SaleItem {
 
   Map<String, dynamic> toJson() => {
         'product_id': productId,
+        if (setId != null) 'set_id': setId,
         'name': name,
         'price': price,
         'quantity': quantity,

@@ -9,7 +9,6 @@ class RegisterCart {
   int? lastSavedSaleId;
   bool saleNeedsSync = false;
   int nextOrderIndex = 1;
-  bool isReturnMode = false;
 }
 
 /// Состояние кассы (одной или нескольких параллельных).
@@ -62,12 +61,6 @@ class CashierState extends ChangeNotifier {
     return _registers[index].cart.fold(0.0, (sum, it) => sum + it.total);
   }
 
-  /// Включён ли режим возврата в указанной кассе.
-  bool registerIsReturnMode(int index) {
-    if (index < 0 || index >= _registers.length) return false;
-    return _registers[index].isReturnMode;
-  }
-
   /// Есть ли хоть в одной из касс непустая корзина (например, для
   /// предупреждения «есть незавершённые продажи»).
   bool get hasAnyCartItems => _registers.any((r) => r.cart.isNotEmpty);
@@ -79,16 +72,6 @@ class CashierState extends ChangeNotifier {
   List<CartItem> get cart => _active.cart;
   int? get lastSavedSaleId => _active.lastSavedSaleId;
   bool get saleNeedsSync => _active.saleNeedsSync;
-
-  /// Включён ли режим возврата в активной кассе.
-  bool get isReturnMode => _active.isReturnMode;
-
-  /// Переключить режим возврата на активной кассе.
-  void setReturnMode(bool value) {
-    if (_active.isReturnMode == value) return;
-    _active.isReturnMode = value;
-    notifyListeners();
-  }
 
   void addItem(CartItem item) {
     final r = _active;
@@ -165,19 +148,21 @@ class CashierState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Полностью очистить активную корзину (cart + lastSavedSaleId + возврат).
+  /// Полностью очистить активную корзину (cart + lastSavedSaleId).
   void clearCart() {
     final r = _active;
     r.cart.clear();
     r.lastSavedSaleId = null;
     r.saleNeedsSync = false;
     r.nextOrderIndex = 1;
-    r.isReturnMode = false;
     notifyListeners();
   }
 
   double get cartTotal =>
       _active.cart.fold(0.0, (sum, item) => sum + item.total);
+
+  double get cartTotalQty =>
+      _active.cart.fold(0.0, (sum, item) => sum + item.quantity);
 
   /// Вызвать после изменения элемента корзины «на месте» (например, quantity
   /// через +/-), чтобы подписчики перерисовались и сработала синхронизация.

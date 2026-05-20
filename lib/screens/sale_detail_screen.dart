@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/storage.dart';
 import '../core/theme.dart';
@@ -12,8 +13,10 @@ import '../models/product.dart';
 import '../models/product_set.dart';
 import '../models/pos_payment_record.dart';
 import '../models/sale.dart';
+import '../models/sale_item.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../services/webkassa_receipt_print_service.dart';
 import '../services/kaspi_pos_service.dart';
 import '../services/pos_payment_store.dart';
 import '../models/counterparty.dart';
@@ -22,6 +25,8 @@ import '../widgets/add_product_dialog.dart';
 import '../widgets/invoice_dialog.dart';
 import '../widgets/kaspi_pos_payment_dialog.dart';
 import '../widgets/pay_debt_dialog.dart';
+import '../widgets/sale_detail_info_section.dart';
+import '../widgets/sale_payment_chip.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
 import '../utils/time_util.dart';
@@ -43,12 +48,17 @@ class SaleDetailScreen extends StatefulWidget {
   State<SaleDetailScreen> createState() => _SaleDetailScreenState();
 }
 
-class _SaleDetailScreenState extends State<SaleDetailScreen> {
+class _SaleDetailScreenState extends State<SaleDetailScreen>
+    with SingleTickerProviderStateMixin {
   late final KaspiPosService _kaspiPosService;
   late final PosPaymentStore _posPaymentStore;
+  late final WebkassaReceiptPrintService _webkassaReceiptPrintService;
 
   Sale? _sale;
+  List<SaleItem> _sourceItems = [];
+  final Map<int, double> _returnDraftQty = {};
   List<CartItem> _items = [];
+  bool _isReturning = false;
   List<Cashier> _cashiers = [];
   List<Shift> _shifts = [];
   Counterparty? _counterparty;
@@ -62,17 +72,26 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   int? _editingPriceIndex;
   TextEditingController? _nameEditController;
   TextEditingController? _priceEditController;
+  late final TabController _tabController;
+  int _tabIndex = 0;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      animationDuration: const Duration(milliseconds: 150),
+    );
     _kaspiPosService = KaspiPosService(widget.storage);
     _posPaymentStore = PosPaymentStore(widget.storage);
+    _webkassaReceiptPrintService = WebkassaReceiptPrintService(widget.storage);
     _load();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _nameEditController?.dispose();
     _priceEditController?.dispose();
     super.dispose();
@@ -89,7 +108,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     try {
       final sale = await widget.apiService.getSale(widget.saleId);
       final cashiers = await widget.apiService.getCashiers();
-      final shifts = await widget.apiService.getShifts();
+      final shiftsPage = await widget.apiService.getShifts(perPage: 50);
+      final shifts = shiftsPage.data;
       
       Counterparty? counterparty;
       List<DebtPayment> debtPayments = [];
@@ -104,12 +124,16 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
       }
       
       if (!mounted) return;
+
       setState(() {
         _sale = sale;
+        _sourceItems = sale.items;
+        _returnDraftQty.clear();
         _items = sale.items
             .map(
               (e) => CartItem(
                 productId: e.productId,
+                setId: e.setId,
                 name: e.name,
                 price: e.price,
                 quantity: e.quantity,
@@ -173,6 +197,34 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     if ((qty - rounded).abs() < 1e-9) return rounded.toInt().toString();
     final s = qty.toStringAsFixed(2);
     return s.replaceAll(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  }
+
+  bool _isLineFullyReturned(int index) {
+    if (index >= _sourceItems.length) return false;
+    return _sourceItems[index].remainingQuantity <= 0;
+  }
+
+  bool get _isOfdSale => _sale?.isOfdSale ?? false;
+
+  Future<void> _openWebkassaTicket({required bool printVersion}) async {
+    final sale = _sale;
+    if (sale == null) return;
+    final url = printVersion
+        ? (sale.ticketPrintUrl ?? sale.ticketUrl)
+        : (sale.ticketUrl ?? sale.ticketPrintUrl);
+    if (url == null || url.isEmpty) {
+      showToast(context, 'Ссылка чека WebKassa недоступна');
+      return;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      showToast(context, 'Некорректная ссылка WebKassa');
+      return;
+    }
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      showToast(context, 'Не удалось открыть чек WebKassa');
+    }
   }
 
   void _updateQuantity(int index, double delta) {
@@ -555,19 +607,57 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     return _posPaymentStore.get(widget.saleId);
   }
 
-  Future<void> _returnSale() async {
+  List<Map<String, dynamic>>? _buildReturnItemsPayload({required bool fullReturn}) {
+    if (_sale == null) return null;
+
+    if (fullReturn) {
+      return null;
+    }
+
+    final payload = <Map<String, dynamic>>[];
+    for (var i = 0; i < _sourceItems.length; i++) {
+      final qty = _returnDraftQty[i] ?? 0;
+      if (qty <= 0) continue;
+      final line = _sourceItems[i];
+      payload.add({
+        ...line.toJson(),
+        'quantity': qty,
+      });
+    }
+
+    return payload.isEmpty ? [] : payload;
+  }
+
+  Future<void> _returnSale({required bool fullReturn}) async {
     if (_sale == null) return;
+
+    final itemsPayload = _buildReturnItemsPayload(fullReturn: fullReturn);
+    if (!fullReturn && (itemsPayload == null || itemsPayload.isEmpty)) {
+      showToast(context, 'Выберите позиции для возврата');
+      return;
+    }
+
+    var returnSum = 0.0;
+    for (var i = 0; i < _sourceItems.length; i++) {
+      final line = _sourceItems[i];
+      final qty = fullReturn
+          ? line.remainingQuantity
+          : (_returnDraftQty[i] ?? 0);
+      returnSum += line.price * qty;
+    }
+
     final posRecord = _resolvePosRecord();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Оформить возврат?'),
+        title: Text(fullReturn ? 'Полный возврат?' : 'Частичный возврат?'),
         content: Text(
-          posRecord != null
-              ? 'Сначала будет выполнен возврат на терминале Kaspi (${posRecord.amount} ₸), '
-                  'затем товары вернутся в остатки. Продажа получит статус «Возврат».'
-              : 'Вернуть товары в остатки? Продажа получит статус «Возврат» '
-                  'и редактировать её будет нельзя.',
+          posRecord != null && fullReturn
+              ? 'Сначала возврат на терминале Kaspi (${posRecord.amount} ₸), '
+                  'затем оформление возврата (${returnSum.toStringAsFixed(2)} ₸).'
+              : fullReturn
+                  ? 'Вернуть все оставшиеся позиции (${returnSum.toStringAsFixed(2)} ₸)?'
+                  : 'Вернуть выбранные позиции на сумму ${returnSum.toStringAsFixed(2)} ₸?',
         ),
         actions: [
           TextButton(
@@ -584,7 +674,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     );
     if (confirm != true || !mounted) return;
 
-    if (posRecord != null) {
+    if (posRecord != null && fullReturn) {
       if (!widget.storage.isPosConfigured) {
         showToast(
           context,
@@ -627,24 +717,48 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
       }
     }
 
+    setState(() => _isReturning = true);
     try {
-      final updated = await widget.apiService.returnSale(widget.saleId);
-      await _posPaymentStore.remove(widget.saleId);
+      final result = await widget.apiService.returnSale(
+        widget.saleId,
+        items: itemsPayload,
+      );
+      if (fullReturn) {
+        await _posPaymentStore.remove(widget.saleId);
+      }
       if (!mounted) return;
-      setState(() {
-        _sale = updated;
-      });
-      if (mounted) {
+
+      if (result.fiscal != null) {
+        try {
+          final printed = await _webkassaReceiptPrintService.printFiscalReceipt(
+            result.fiscal,
+          );
+          if (mounted && printed) {
+            showToast(context, 'Чек возврата напечатан');
+          }
+        } catch (_) {
+          if (mounted) {
+            showToast(context, 'Возврат оформлен, печать чека не удалась');
+          }
+        }
+      } else if (mounted) {
         showToast(context, 'Возврат оформлен');
       }
-      context.pop(true);
+
+      if (mounted) context.pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Не удалось оформить возврат');
+    } finally {
+      if (mounted) setState(() => _isReturning = false);
     }
   }
 
   Future<void> _printReceipt() async {
+    if (_isOfdSale) {
+      await _openWebkassaTicket(printVersion: true);
+      return;
+    }
     final printMode = widget.storage.receiptPrintMode;
     if ((printMode == 'raw' || printMode == 'pdf_direct') && !Platform.isWindows) {
       showToast(context, 'RAW и PDF Direct печать доступны только на Windows');
@@ -694,6 +808,13 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   }
 
   Future<void> _saveReceiptPdf() async {
+    if (_isOfdSale) {
+      await _openWebkassaTicket(printVersion: true);
+      if (mounted) {
+        showToast(context, 'Открылся чек WebKassa: сохраните как PDF из браузера');
+      }
+      return;
+    }
     if (_items.isEmpty) {
       showToast(context, 'Нет позиций для сохранения');
       return;
@@ -774,6 +895,12 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
 
     final sale = _sale!;
     final isReturned = sale.isReturned;
+    final isReturnRecord = sale.isReturnRecord;
+    final isOfdSale = _isOfdSale;
+    final canEditOrder = !isReturned && !isReturnRecord && !isOfdSale;
+    final canReturn = sale.canAcceptReturns && !_isReturning;
+    final hasMenuActions =
+        (!isReturned && _items.isNotEmpty) || canReturn || canEditOrder;
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -797,28 +924,30 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
           onPressed: () => context.pop(),
         ),
         actions: [
-          if (!isReturned) ...[
+          if (canEditOrder)
             IconButton(
               icon: const Icon(Icons.add),
               tooltip: 'Добавить позицию',
               onPressed: _isSaving ? null : _addItemFromCatalog,
             ),
-            IconButton(
-              icon: const Icon(Icons.picture_as_pdf),
-              tooltip: 'Сохранить в PDF',
-              onPressed: _items.isEmpty ? null : _saveReceiptPdf,
-            ),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: isOfdSale ? 'Чек WebKassa (PDF)' : 'Сохранить в PDF',
+            onPressed: _items.isEmpty ? null : _saveReceiptPdf,
+          ),
+          if (canEditOrder)
             IconButton(
               icon: const Icon(Icons.save),
               tooltip: 'Сохранить',
               onPressed: _isSaving ? null : _save,
             ),
-            if (Platform.isWindows)
-              IconButton(
-                icon: const Icon(Icons.print),
-                tooltip: 'Печать чека',
-                onPressed: _items.isEmpty ? null : _printReceipt,
-              ),
+          if (Platform.isWindows || isOfdSale)
+            IconButton(
+              icon: const Icon(Icons.print),
+              tooltip: isOfdSale ? 'Печать чека WebKassa' : 'Печать чека',
+              onPressed: _items.isEmpty ? null : _printReceipt,
+            ),
+          if (hasMenuActions)
             PopupMenuButton<String>(
               tooltip: 'Действия',
               onSelected: (value) async {
@@ -833,8 +962,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                       storage: widget.storage,
                     );
                     break;
-                  case 'return':
-                    await _returnSale();
+                  case 'return_full':
+                    await _returnSale(fullReturn: true);
                     break;
                   case 'delete':
                     await _delete();
@@ -847,46 +976,96 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                     value: 'invoice',
                     child: Text('Накладная'),
                   ),
-                const PopupMenuItem(
-                  value: 'return',
-                  child: Text('Оформить возврат'),
+                if (canReturn)
+                  const PopupMenuItem(
+                    value: 'return_full',
+                    child: Text('Полный возврат'),
+                  ),
+                if (canEditOrder)
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Text('Удалить'),
+                  ),
+              ],
+            ),
+        ],
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_error != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline, color: AppColors.danger),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: AppColors.danger),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Material(
+            color: Colors.white,
+            child: TabBar(
+              controller: _tabController,
+              labelColor: AppColors.primary,
+              unselectedLabelColor: AppColors.muted,
+              indicatorColor: AppColors.primary,
+              onTap: (index) => setState(() => _tabIndex = index),
+              tabs: const [
+                Tab(text: 'Детали продажи'),
+                Tab(text: 'Возврат'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: IndexedStack(
+              index: _tabIndex,
+              sizing: StackFit.expand,
+              children: [
+                RepaintBoundary(
+                  child: _buildDetailsTab(
+                    context,
+                    sale,
+                    isReturned,
+                    isReturnRecord,
+                  ),
                 ),
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: Text('Удалить'),
+                RepaintBoundary(
+                  child: _buildReturnTab(context, sale, canReturn),
                 ),
               ],
             ),
-          ],
+          ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_error != null) ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.danger.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.error_outline, color: AppColors.danger),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: AppColors.danger),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
+    );
+  }
+
+  Widget _buildDetailsTab(
+    BuildContext context,
+    Sale sale,
+    bool isReturned,
+    bool isReturnRecord,
+  ) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SaleDetailInfoSection(sale: sale),
+            const SizedBox(height: 16),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -901,40 +1080,63 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                     const Divider(),
                     ...List.generate(_items.length, (index) {
                       final item = _items[index];
-                      if (isReturned) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      item.name,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w500,
+                      final sourceLine = index < _sourceItems.length
+                          ? _sourceItems[index]
+                          : null;
+                      final fullyReturned = _isLineFullyReturned(index);
+                      if (isReturned || isReturnRecord || fullyReturned || _isOfdSale) {
+                        final inactiveOnOriginalSale =
+                            fullyReturned && !isReturned && !isReturnRecord;
+                        final subtitle = inactiveOnOriginalSale && sourceLine != null
+                            ? 'Полностью возвращено (${sourceLine.returnedQuantity} ${sourceLine.unit})'
+                            : '${item.price.toStringAsFixed(2)} ₸ × ${item.quantity} ${item.unit}'
+                                '${sourceLine != null && sourceLine.returnedQuantity > 0 ? ' (возвр. ${sourceLine.returnedQuantity})' : ''}';
+                        return Opacity(
+                          opacity: inactiveOnOriginalSale ? 0.55 : 1,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.name,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                          color: inactiveOnOriginalSale
+                                              ? AppColors.muted
+                                              : null,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${item.price.toStringAsFixed(2)} ₸ × ${item.quantity} ${item.unit}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: AppColors.muted,
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        subtitle,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.muted,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                '${item.total.toStringAsFixed(2)} ₸',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
+                                Text(
+                                  '${item.total.toStringAsFixed(2)} ₸',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: inactiveOnOriginalSale
+                                        ? AppColors.muted
+                                        : null,
+                                    decoration: inactiveOnOriginalSale
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         );
                       }
@@ -1022,6 +1224,16 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                                           ),
                                         ),
                                       ),
+                                      if (sourceLine != null &&
+                                          sourceLine.returnedQuantity > 0) ...[
+                                        Text(
+                                          ' (возвр. ${sourceLine.returnedQuantity} из ${sourceLine.quantity})',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.muted,
+                                          ),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ],
@@ -1116,17 +1328,14 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                           'Итого',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        Text(
-                          '${_itemsTotal.toStringAsFixed(2)} ₸',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
+                        SaleListAmountTitle(
+                          sale: sale,
+                          prominent: true,
+                          amount: _itemsTotal,
                         ),
                       ],
                     ),
-                    if (!isReturned) ...[
+                    if (!isReturned && !_isOfdSale) ...[
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
                         onPressed: _isSaving ? null : _addArbitraryItem,
@@ -1280,7 +1489,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                 ),
               ),
             ],
-            if (!isReturned) ...[
+            if (!isReturned && !isReturnRecord && !_isOfdSale) ...[
               const SizedBox(height: 24),
               Text(
                 'Редактирование',
@@ -1318,9 +1527,179 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                 onChanged: (v) => setState(() => _selectedShiftId = v),
               ),
             ],
-          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReturnTab(BuildContext context, Sale sale, bool canReturn) {
+    if (!canReturn) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(
+                  sale.isReturned
+                      ? Icons.check_circle_outline
+                      : Icons.info_outline,
+                  size: 40,
+                  color: AppColors.muted,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  sale.isReturnRecord
+                      ? 'Это документ возврата'
+                      : sale.isReturned
+                          ? 'По этой продаже оформлен полный возврат'
+                          : 'Возврат по этой продаже недоступен',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                if (sale.returnSales.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Оформленные возвраты',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  ...sale.returnSales.map(
+                    (r) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('Возврат №${r.id}'),
+                      subtitle: Text(
+                        '${r.totalPrice.toStringAsFixed(2)} ₸ • ${_formatSaleDateTime(r.createdAt)}',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push<bool>('/sales/sale/${r.id}'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Выберите позиции для возврата',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              ...List.generate(_sourceItems.length, (index) {
+                final line = _sourceItems[index];
+                final remaining = line.remainingQuantity;
+                if (remaining <= 0) {
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      line.name,
+                      style: TextStyle(color: AppColors.muted),
+                    ),
+                    subtitle: Text(
+                      'Полностью возвращено (${line.returnedQuantity} ${line.unit})',
+                    ),
+                  );
+                }
+                final step = line.unit == 'pcs' ? 1.0 : 0.1;
+                final draft = _returnDraftQty[index] ?? 0;
+                return ListTile(
+                  title: Text(line.name),
+                  subtitle: Text(
+                    'Доступно: $remaining ${line.unit} '
+                    '(продано ${line.quantity}, возвр. ${line.returnedQuantity})',
+                  ),
+                  trailing: SizedBox(
+                    width: 140,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline),
+                          onPressed: draft > 0
+                              ? () => setState(() {
+                                    _returnDraftQty[index] =
+                                        (draft - step).clamp(0, remaining);
+                                  })
+                              : null,
+                        ),
+                        Text(draft.toStringAsFixed(
+                          line.unit == 'pcs' ? 0 : 2,
+                        )),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline),
+                          onPressed: draft < remaining
+                              ? () => setState(() {
+                                    _returnDraftQty[index] =
+                                        (draft + step).clamp(0, remaining);
+                                  })
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isReturning
+                          ? null
+                          : () => _returnSale(fullReturn: false),
+                      icon: const Icon(Icons.undo),
+                      label: const Text('Частичный возврат'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _isReturning
+                          ? null
+                          : () => _returnSale(fullReturn: true),
+                      icon: _isReturning
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.keyboard_return),
+                      label: const Text('Полный возврат'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  String _formatSaleDateTime(DateTime dt) {
+    final t = TimeUtil.toUtcPlus5Wall(dt);
+    return '${t.day.toString().padLeft(2, '0')}.${t.month.toString().padLeft(2, '0')}.${t.year} '
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   }
 }

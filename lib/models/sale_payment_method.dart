@@ -22,6 +22,14 @@ enum SalePaymentMethod {
         _ => false,
       };
 
+  static SalePaymentMethod? tryParse(String? value) {
+    if (value == null || value.isEmpty) return null;
+    for (final m in SalePaymentMethod.values) {
+      if (m.apiValue == value) return m;
+    }
+    return null;
+  }
+
   String get label => switch (this) {
         SalePaymentMethod.cashOfd => 'Наличные',
         SalePaymentMethod.cardOfd => 'Карта',

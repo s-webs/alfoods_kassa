@@ -13,6 +13,9 @@ import '../models/product.dart';
 import '../models/product_receipt.dart';
 import '../models/product_set.dart';
 import '../models/sale.dart';
+import '../models/paginated_sales.dart';
+import '../models/paginated_shifts.dart';
+import '../models/sale_return_result.dart';
 import '../models/sale_create_result.dart';
 import '../models/sale_payment_method.dart';
 import '../models/shift.dart';
@@ -22,6 +25,48 @@ import '../models/user.dart';
 import '../models/waybill_analysis.dart';
 import '../models/webkassa_cashbox.dart';
 import '../utils/time_util.dart';
+
+class PaginatedProducts {
+  const PaginatedProducts({
+    required this.data,
+    required this.total,
+    required this.perPage,
+    required this.currentPage,
+    this.lastPage,
+  });
+
+  final List<Product> data;
+  final int total;
+  final int perPage;
+  final int currentPage;
+  final int? lastPage;
+
+  bool get hasMore {
+    if (lastPage != null) return currentPage < lastPage!;
+    return (currentPage * perPage) < total;
+  }
+}
+
+class PaginatedSets {
+  const PaginatedSets({
+    required this.data,
+    required this.total,
+    required this.perPage,
+    required this.currentPage,
+    this.lastPage,
+  });
+
+  final List<ProductSet> data;
+  final int total;
+  final int perPage;
+  final int currentPage;
+  final int? lastPage;
+
+  bool get hasMore {
+    if (lastPage != null) return currentPage < lastPage!;
+    return (currentPage * perPage) < total;
+  }
+}
 
 /// Result of resolving a barcode: either a product or a set.
 class BarcodeResolveResult {
@@ -103,12 +148,23 @@ class ApiService {
     }
   }
 
-  Future<List<Shift>> getShifts() async {
-    final response = await _apiClient.dio.get('api/shifts');
-    final list = response.data as List<dynamic>;
-    return list
-        .map((e) => Shift.fromJson(e as Map<String, dynamic>))
-        .toList();
+  static const int shiftsPerPage = 15;
+  static const int catalogPerPage = 15;
+
+  Future<PaginatedShifts> getShifts({
+    int page = 1,
+    int perPage = shiftsPerPage,
+  }) async {
+    final response = await _apiClient.dio.get(
+      'api/shifts',
+      queryParameters: {'page': page, 'per_page': perPage},
+    );
+    return PaginatedShifts.fromResponse(response.data);
+  }
+
+  Future<Shift> getShift(int id) async {
+    final response = await _apiClient.dio.get('api/shifts/$id');
+    return Shift.fromJson(response.data as Map<String, dynamic>);
   }
 
   Future<Shift> createShift() async {
@@ -412,18 +468,99 @@ class ApiService {
     int? categoryId,
     String? barcode,
   }) async {
-    final queryParams = <String, dynamic>{};
-    if (active != null) queryParams['active'] = active;
-    if (categoryId != null) queryParams['category_id'] = categoryId;
-    if (barcode != null && barcode.isNotEmpty) queryParams['barcode'] = barcode;
+    final queryParams = _productQueryParams(
+      active: active,
+      categoryId: categoryId,
+      barcode: barcode,
+    );
     final response = await _apiClient.dio.get(
       'api/products',
       queryParameters: queryParams.isNotEmpty ? queryParams : null,
     );
-    final list = response.data as List<dynamic>;
+    final raw = response.data;
+    if (raw is Map<String, dynamic>) {
+      return _parsePaginatedProducts(raw).data;
+    }
+    final list = raw as List<dynamic>;
     return list
         .map((e) => Product.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Map<String, dynamic> _productQueryParams({
+    bool? active,
+    int? categoryId,
+    String? barcode,
+    int? page,
+    int? perPage,
+    String? search,
+  }) {
+    final queryParams = <String, dynamic>{};
+    if (active != null) queryParams['is_active'] = active;
+    if (categoryId != null) queryParams['category_id'] = categoryId;
+    if (barcode != null && barcode.isNotEmpty) queryParams['barcode'] = barcode;
+    if (page != null) queryParams['page'] = page;
+    if (perPage != null && perPage > 0) queryParams['per_page'] = perPage;
+    if (search != null && search.trim().isNotEmpty) {
+      queryParams['search'] = search.trim();
+    }
+    return queryParams;
+  }
+
+  Future<PaginatedProducts> getProductsPaginated({
+    int page = 1,
+    int perPage = catalogPerPage,
+    bool? active,
+    int? categoryId,
+    String? barcode,
+    String? search,
+  }) async {
+    final queryParams = _productQueryParams(
+      active: active,
+      categoryId: categoryId,
+      barcode: barcode,
+      page: page,
+      perPage: perPage,
+      search: search,
+    );
+    final response = await _apiClient.dio.get(
+      'api/products',
+      queryParameters: queryParams,
+    );
+    return _parsePaginatedProducts(response.data);
+  }
+
+  PaginatedProducts _parsePaginatedProducts(dynamic raw) {
+    if (raw is List<dynamic>) {
+      final list = raw
+          .map((e) => Product.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return PaginatedProducts(
+        data: list,
+        total: list.length,
+        perPage: list.length,
+        currentPage: 1,
+        lastPage: 1,
+      );
+    }
+    final map = raw as Map<String, dynamic>;
+    final items = (map['data'] as List<dynamic>)
+        .map((e) => Product.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedProducts(
+      data: items,
+      total: _parseInt(map['total']),
+      perPage: _parseInt(map['per_page'], fallback: items.length),
+      currentPage: _parseInt(map['current_page'], fallback: 1),
+      lastPage: map['last_page'] != null
+          ? _parseInt(map['last_page'], fallback: 1)
+          : null,
+    );
+  }
+
+  static int _parseInt(dynamic v, {int fallback = 0}) {
+    if (v is int) return v;
+    return int.tryParse(v?.toString() ?? '') ?? fallback;
   }
 
   /// Поиск товара по штрихкоду (для сканера). Возвращает null, если не найден.
@@ -463,17 +600,83 @@ class ApiService {
     bool? active,
     String? barcode,
   }) async {
-    final queryParams = <String, dynamic>{};
-    if (active != null) queryParams['active'] = active;
-    if (barcode != null && barcode.isNotEmpty) queryParams['barcode'] = barcode;
+    final queryParams = _setQueryParams(active: active, barcode: barcode);
     final response = await _apiClient.dio.get(
       'api/sets',
       queryParameters: queryParams.isNotEmpty ? queryParams : null,
     );
-    final list = response.data as List<dynamic>;
+    final raw = response.data;
+    if (raw is Map<String, dynamic>) {
+      return _parsePaginatedSets(raw).data;
+    }
+    final list = raw as List<dynamic>;
     return list
         .map((e) => ProductSet.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Map<String, dynamic> _setQueryParams({
+    bool? active,
+    String? barcode,
+    int? page,
+    int? perPage,
+    String? search,
+  }) {
+    final queryParams = <String, dynamic>{};
+    if (active != null) queryParams['is_active'] = active;
+    if (barcode != null && barcode.isNotEmpty) queryParams['barcode'] = barcode;
+    if (page != null) queryParams['page'] = page;
+    if (perPage != null && perPage > 0) queryParams['per_page'] = perPage;
+    if (search != null && search.trim().isNotEmpty) {
+      queryParams['search'] = search.trim();
+    }
+    return queryParams;
+  }
+
+  Future<PaginatedSets> getSetsPaginated({
+    int page = 1,
+    int perPage = catalogPerPage,
+    bool? active,
+    String? search,
+  }) async {
+    final response = await _apiClient.dio.get(
+      'api/sets',
+      queryParameters: _setQueryParams(
+        active: active,
+        page: page,
+        perPage: perPage,
+        search: search,
+      ),
+    );
+    return _parsePaginatedSets(response.data);
+  }
+
+  PaginatedSets _parsePaginatedSets(dynamic raw) {
+    if (raw is List<dynamic>) {
+      final list = raw
+          .map((e) => ProductSet.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return PaginatedSets(
+        data: list,
+        total: list.length,
+        perPage: list.length,
+        currentPage: 1,
+        lastPage: 1,
+      );
+    }
+    final map = raw as Map<String, dynamic>;
+    final items = (map['data'] as List<dynamic>)
+        .map((e) => ProductSet.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedSets(
+      data: items,
+      total: _parseInt(map['total']),
+      perPage: _parseInt(map['per_page'], fallback: items.length),
+      currentPage: _parseInt(map['current_page'], fallback: 1),
+      lastPage: map['last_page'] != null
+          ? _parseInt(map['last_page'], fallback: 1)
+          : null,
+    );
   }
 
   Future<ProductSet> getSet(int id) async {
@@ -501,13 +704,82 @@ class ApiService {
     await _apiClient.dio.delete('api/sets/$id');
   }
 
-  Future<List<Sale>> getSales() async {
-    final response = await _apiClient.dio.get('api/sales');
-    final list = response.data as List<dynamic>;
-    return list
-        .map((e) => Sale.fromJson(e as Map<String, dynamic>))
-        .toList();
+  static const int salesPerPage = 15;
+
+  Future<PaginatedSales> getSales({
+    int? shiftId,
+    int page = 1,
+    int perPage = salesPerPage,
+    String ofdFilter = 'all',
+  }) async {
+    final query = <String, dynamic>{
+      'page': page,
+      'per_page': perPage,
+      'ofd_filter': ofdFilter,
+    };
+    if (shiftId != null) query['shift_id'] = shiftId;
+
+    final response = await _apiClient.dio.get(
+      'api/sales',
+      queryParameters: query,
+    );
+    return PaginatedSales.fromResponse(response.data);
   }
+
+  Future<List<Sale>> getAllSalesForShift({
+    required int shiftId,
+    String ofdFilter = 'all',
+  }) async {
+    final all = <Sale>[];
+    var page = 1;
+    while (true) {
+      final result = await getSales(
+        shiftId: shiftId,
+        page: page,
+        perPage: 100,
+        ofdFilter: ofdFilter,
+      );
+      all.addAll(result.data);
+      if (page >= result.lastPage) break;
+      page++;
+    }
+    return all;
+  }
+
+  Future<PaginatedSales> searchSales({
+    int? saleId,
+    String? webkassaCheckNumber,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int? shiftId,
+    int page = 1,
+    int perPage = salesPerPage,
+  }) async {
+    final query = <String, dynamic>{
+      'page': page,
+      'per_page': perPage,
+    };
+    if (saleId != null) query['sale_id'] = saleId;
+    if (webkassaCheckNumber != null && webkassaCheckNumber.trim().isNotEmpty) {
+      query['webkassa_check_number'] = webkassaCheckNumber.trim();
+    }
+    if (dateFrom != null) {
+      query['date_from'] = _formatDateParam(dateFrom);
+    }
+    if (dateTo != null) {
+      query['date_to'] = _formatDateParam(dateTo);
+    }
+    if (shiftId != null) query['shift_id'] = shiftId;
+
+    final response = await _apiClient.dio.get(
+      'api/sales/search',
+      queryParameters: query,
+    );
+    return PaginatedSales.fromResponse(response.data);
+  }
+
+  static String _formatDateParam(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 
   Future<Sale> getSale(int id) async {
     final response = await _apiClient.dio.get('api/sales/$id');
@@ -628,9 +900,21 @@ class ApiService {
     await _apiClient.dio.post('api/returns', data: data);
   }
 
-  Future<Sale> returnSale(int id) async {
-    final response = await _apiClient.dio.post('api/sales/$id/return');
-    return Sale.fromJson(response.data as Map<String, dynamic>);
+  Future<SaleReturnResult> returnSale(
+    int id, {
+    List<Map<String, dynamic>>? items,
+  }) async {
+    final data = <String, dynamic>{};
+    if (items != null && items.isNotEmpty) {
+      data['items'] = items;
+    }
+    final response = await _apiClient.dio.post(
+      'api/sales/$id/return',
+      data: data.isEmpty ? null : data,
+    );
+    return SaleReturnResult.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
   }
 
   // Counterparties

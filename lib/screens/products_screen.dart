@@ -24,7 +24,17 @@ class ProductsScreen extends StatefulWidget {
   State<ProductsScreen> createState() => _ProductsScreenState();
 }
 
-enum _ProductsSortKey { id, name, stockThreshold, stock, price, purchasePrice }
+enum _ProductsSortKey {
+  id,
+  name,
+  barcode,
+  stockThreshold,
+  stock,
+  price,
+  purchasePrice,
+  purchaseTotal,
+  stockTotal,
+}
 
 class _ProductsScreenState extends State<ProductsScreen> {
   List<Product> _products = [];
@@ -107,6 +117,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
       case _ProductsSortKey.name:
         cmp = a.name.compareTo(b.name);
         break;
+      case _ProductsSortKey.barcode:
+        cmp = (a.barcode ?? '').compareTo(b.barcode ?? '');
+        break;
       case _ProductsSortKey.stockThreshold:
         cmp = a.stockThreshold.compareTo(b.stockThreshold);
         break;
@@ -114,10 +127,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
         cmp = a.stock.compareTo(b.stock);
         break;
       case _ProductsSortKey.price:
-        cmp = a.price.compareTo(b.price);
+        cmp = a.effectivePrice.compareTo(b.effectivePrice);
         break;
       case _ProductsSortKey.purchasePrice:
         cmp = a.purchasePrice.compareTo(b.purchasePrice);
+        break;
+      case _ProductsSortKey.purchaseTotal:
+        cmp = (a.purchasePrice * a.stock).compareTo(b.purchasePrice * b.stock);
+        break;
+      case _ProductsSortKey.stockTotal:
+        cmp = (a.effectivePrice * a.stock).compareTo(b.effectivePrice * b.stock);
         break;
     }
     return _sortAsc ? cmp : -cmp;
@@ -129,9 +148,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
         _sortAsc = !_sortAsc;
       } else {
         _sortKey = key;
-        _sortAsc = (key == _ProductsSortKey.name ||
-            key == _ProductsSortKey.stock ||
-            key == _ProductsSortKey.stockThreshold);
+        _sortAsc = switch (key) {
+          _ProductsSortKey.id => false,
+          _ => true,
+        };
       }
     });
   }
@@ -143,10 +163,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(title),
-            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                title,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
             Icon(
               isActive
                   ? (_sortAsc ? Icons.arrow_upward : Icons.arrow_downward)
@@ -197,7 +221,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
             child: _sortHeader('ID', _ProductsSortKey.id),
           ),
           Expanded(child: _sortHeader('Название', _ProductsSortKey.name)),
-          const SizedBox(width: _colBarcode, child: Text('Штрихкод')),
+          SizedBox(
+            width: _colBarcode,
+            child: _sortHeader('Штрихкод', _ProductsSortKey.barcode),
+          ),
           SizedBox(
             width: _colThreshold,
             child: _sortHeader('Порог', _ProductsSortKey.stockThreshold),
@@ -214,8 +241,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
             width: _colPrice,
             child: _sortHeader('Цена', _ProductsSortKey.price),
           ),
-          const SizedBox(width: _colCost, child: Text('Сумма закупа')),
-          const SizedBox(width: _colValue, child: Text('Сумма')),
+          SizedBox(
+            width: _colCost,
+            child: _sortHeader('Сумма закупа', _ProductsSortKey.purchaseTotal),
+          ),
+          SizedBox(
+            width: _colValue,
+            child: _sortHeader('Сумма', _ProductsSortKey.stockTotal),
+          ),
           const SizedBox(width: _colActions, child: Text('Действия')),
         ],
       ),
@@ -326,51 +359,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 width: _colPrice,
                 child: Text(p.price.toStringAsFixed(2)),
               ),
-              SizedBox(
+              _amountPill(
                 width: _colCost,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.5),
-                    ),
-                  ),
-                  child: Text(
-                    purchaseCost.toStringAsFixed(2),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                ),
+                text: purchaseCost.toStringAsFixed(2),
+                background: AppColors.primary.withValues(alpha: 0.15),
+                border: AppColors.primary.withValues(alpha: 0.5),
+                textColor: AppColors.primary,
               ),
-              SizedBox(
+              _amountPill(
                 width: _colValue,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF22c55e).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: const Color(0xFF22c55e).withValues(alpha: 0.5),
-                    ),
-                  ),
-                  child: Text(
-                    stockValue.toStringAsFixed(2),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF16a34a),
-                    ),
-                  ),
-                ),
+                text: stockValue.toStringAsFixed(2),
+                background: const Color(0xFF22c55e).withValues(alpha: 0.15),
+                border: const Color(0xFF22c55e).withValues(alpha: 0.5),
+                textColor: const Color(0xFF16a34a),
               ),
               SizedBox(
                 width: _colActions,
@@ -473,9 +474,39 @@ class _ProductsScreenState extends State<ProductsScreen> {
   static const double _colCheck = 48, _colId = 52, _colThreshold = 88, _colStock = 88;
   static const double _colBarcode = 120;
   static const double _colPurchase = 110, _colPrice = 72;
-  static const double _colCost = 92,
-      _colValue = 100,
+  static const double _colCost = 108,
+      _colValue = 96,
       _colActions = 100;
+
+  Widget _amountPill({
+    required double width,
+    required String text,
+    required Color background,
+    required Color border,
+    required Color textColor,
+  }) {
+    return SizedBox(
+      width: width,
+      child: Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: border),
+        ),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: textColor,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
 
   String get _categoryFilterName {
     if (_selectedCategoryId == null ||

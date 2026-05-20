@@ -1,11 +1,15 @@
 import 'sale_item.dart';
+import 'sale_payment_method.dart';
 import 'sale_pos_transaction.dart';
 
 class Sale {
   static const String statusCompleted = 'completed';
+  static const String statusPartiallyReturned = 'partially_returned';
   static const String statusReturned = 'returned';
 
   final int id;
+  final int? originalSaleId;
+  final String? returnKind;
   final int? shiftId;
   final int? cashierId;
   final int? counterpartyId;
@@ -23,9 +27,13 @@ class Sale {
   final String? webkassaCheckNumber;
   final String? paymentMethod;
   final SalePosTransaction? posTransaction;
+  final List<Sale> returnSales;
+  final double returnedTotal;
 
   const Sale({
     required this.id,
+    this.originalSaleId,
+    this.returnKind,
     this.shiftId,
     this.cashierId,
     this.counterpartyId,
@@ -43,19 +51,49 @@ class Sale {
     this.webkassaCheckNumber,
     this.paymentMethod,
     this.posTransaction,
+    this.returnSales = const [],
+    this.returnedTotal = 0,
   });
 
+  bool get isReturnRecord => originalSaleId != null;
+
   bool get isReturned => status == statusReturned;
+
+  bool get isPartiallyReturned => status == statusPartiallyReturned;
+
+  bool get canAcceptReturns =>
+      !isReturnRecord &&
+      (status == statusCompleted || status == statusPartiallyReturned);
+
+  bool get isOfdSale {
+    final method = SalePaymentMethod.tryParse(paymentMethod);
+    return method?.requiresFiscalization ?? false;
+  }
 
   double get remainingDebt {
     if (!isOnCredit) return 0;
     return (totalPrice - paidAmount).clamp(0, double.infinity);
   }
 
+  /// Сумма чека после возвратов (для частичного возврата).
+  double get remainingTotalAfterReturns {
+    if (!isPartiallyReturned) return totalPrice;
+    return (totalPrice - totalReturnedAmount).clamp(0, double.infinity);
+  }
+
+  /// Общая сумма уже оформленных возвратов по продаже.
+  double get totalReturnedAmount => returnedTotal > 0
+      ? returnedTotal
+      : returnSales.fold<double>(0, (s, r) => s + r.totalPrice);
+
   factory Sale.fromJson(Map<String, dynamic> json) {
     final itemsList = json['items'] as List<dynamic>?;
     return Sale(
       id: _parseInt(json['id']),
+      originalSaleId: json['original_sale_id'] != null
+          ? _parseInt(json['original_sale_id'])
+          : null,
+      returnKind: json['return_kind']?.toString(),
       shiftId: json['shift_id'] != null ? _parseInt(json['shift_id']) : null,
       cashierId:
           json['cashier_id'] != null ? _parseInt(json['cashier_id']) : null,
@@ -86,6 +124,13 @@ class Sale {
               json['pos_transaction'] as Map<String, dynamic>,
             )
           : null,
+      returnSales: json['return_sales'] is List
+          ? (json['return_sales'] as List)
+              .whereType<Map<String, dynamic>>()
+              .map(Sale.fromJson)
+              .toList()
+          : const [],
+      returnedTotal: _parseDouble(json['returned_total']),
     );
   }
 

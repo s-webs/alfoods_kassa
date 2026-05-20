@@ -5,6 +5,7 @@ import '../core/theme.dart';
 import '../models/sale.dart';
 import '../services/api_service.dart';
 import '../utils/time_util.dart';
+import '../widgets/sale_payment_chip.dart';
 
 class SaleSearchScreen extends StatefulWidget {
   const SaleSearchScreen({
@@ -19,74 +20,129 @@ class SaleSearchScreen extends StatefulWidget {
 }
 
 class _SaleSearchScreenState extends State<SaleSearchScreen> {
-  List<Sale> _allSales = [];
-  List<Sale> _filteredSales = [];
-  bool _isLoading = true;
+  final List<Sale> _filteredSales = [];
+  final ScrollController _scrollController = ScrollController();
+  final _internalIdController = TextEditingController();
+  final _webkassaCheckController = TextEditingController();
+
+  bool _isSearching = false;
+  bool _isLoadingMore = false;
   bool _searched = false;
   String? _error;
-  final _saleIdController = TextEditingController();
   DateTime? _dateFrom;
   DateTime? _dateTo;
+  int _currentPage = 1;
+  int _lastPage = 1;
+  int _total = 0;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    _saleIdController.dispose();
+    _scrollController.dispose();
+    _internalIdController.dispose();
+    _webkassaCheckController.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  void _onScroll() {
+    if (!_searched || !_scrollController.hasClients || _isLoadingMore) return;
+    if (_currentPage >= _lastPage) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      _loadMore();
+    }
+  }
+
+  Map<String, dynamic>? _searchParams() {
+    final internalText = _internalIdController.text.trim();
+    final webkassaText = _webkassaCheckController.text.trim();
+    final saleId = internalText.isEmpty ? null : int.tryParse(internalText);
+
+    if (saleId == null &&
+        webkassaText.isEmpty &&
+        _dateFrom == null &&
+        _dateTo == null) {
+      return null;
+    }
+
+    return {
+      'saleId': saleId,
+      'webkassa': webkassaText.isEmpty ? null : webkassaText,
+    };
+  }
+
+  Future<void> _search() async {
+    if (_searchParams() == null) {
+      setState(() => _error = 'Укажите внутренний №, чек WebKassa или период дат');
+      return;
+    }
+
     setState(() {
-      _isLoading = true;
+      _isSearching = true;
       _error = null;
+      _searched = false;
+      _filteredSales.clear();
+      _currentPage = 1;
     });
+
     try {
-      final sales = await widget.apiService.getSales();
-      final sorted = List<Sale>.from(sales)..sort((a, b) => b.id.compareTo(a.id));
+      final params = _searchParams()!;
+      final page = await widget.apiService.searchSales(
+        saleId: params['saleId'] as int?,
+        webkassaCheckNumber: params['webkassa'] as String?,
+        dateFrom: _dateFrom,
+        dateTo: _dateTo,
+        page: 1,
+      );
       if (!mounted) return;
       setState(() {
-        _allSales = sorted;
-        _isLoading = false;
+        _filteredSales.addAll(page.data);
+        _currentPage = page.currentPage;
+        _lastPage = page.lastPage;
+        _total = page.total;
+        _searched = true;
+        _isSearching = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Не удалось загрузить продажи';
-        _isLoading = false;
+        _error = 'Не удалось выполнить поиск';
+        _isSearching = false;
       });
     }
   }
 
-  void _search() {
-    final saleIdText = _saleIdController.text.trim();
-    final saleId = saleIdText.isEmpty ? null : int.tryParse(saleIdText);
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || _currentPage >= _lastPage) return;
+    final params = _searchParams();
+    if (params == null) return;
 
-    var list = List<Sale>.from(_allSales);
-
-    if (saleId != null) {
-      list = list.where((s) => s.id == saleId).toList();
+    setState(() => _isLoadingMore = true);
+    try {
+      final page = await widget.apiService.searchSales(
+        saleId: params['saleId'] as int?,
+        webkassaCheckNumber: params['webkassa'] as String?,
+        dateFrom: _dateFrom,
+        dateTo: _dateTo,
+        page: _currentPage + 1,
+      );
+      if (!mounted) return;
+      setState(() {
+        _filteredSales.addAll(page.data);
+        _currentPage = page.currentPage;
+        _lastPage = page.lastPage;
+        _total = page.total;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoadingMore = false);
     }
-
-    if (_dateFrom != null) {
-      final from = DateTime(_dateFrom!.year, _dateFrom!.month, _dateFrom!.day);
-      list = list.where((s) => s.createdAt.isAfter(from) || s.createdAt.isAtSameMomentAs(from)).toList();
-    }
-    if (_dateTo != null) {
-      final to = DateTime(_dateTo!.year, _dateTo!.month, _dateTo!.day, 23, 59, 59);
-      list = list.where((s) => s.createdAt.isBefore(to) || s.createdAt.isAtSameMomentAs(to)).toList();
-    }
-
-    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-    setState(() {
-      _filteredSales = list;
-      _searched = true;
-    });
   }
 
   String _formatDate(DateTime dt) {
@@ -114,8 +170,55 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
     }
   }
 
+  Widget _buildSaleTile(Sale sale) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: sale.isPartiallyReturned
+              ? AppColors.accent.withValues(alpha: 0.2)
+              : AppColors.primaryLight,
+          child: Icon(
+            Icons.receipt,
+            color: sale.isPartiallyReturned
+                ? AppColors.accent
+                : AppColors.primary,
+          ),
+        ),
+        title: SaleListAmountTitle(sale: sale),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '№${sale.id} • ${_formatDate(sale.createdAt)} • к-во: ${sale.totalQty}',
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                SaleStatusChip(sale: sale),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SalePaymentChip(sale: sale, compact: true),
+                ),
+              ],
+            ),
+          ],
+        ),
+        isThreeLine: true,
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () async {
+          final result = await context.push<bool>('/sales/sale/${sale.id}');
+          if (result == true && mounted) _search();
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasMore = _currentPage < _lastPage;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -144,168 +247,113 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
             ],
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _internalIdController,
+                decoration: const InputDecoration(
+                  labelText: 'Внутренний чек (№ продажи)',
+                  hintText: 'Например: 1523',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.receipt_long),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _webkassaCheckController,
+                decoration: const InputDecoration(
+                  labelText: 'Чек WebKassa',
+                  hintText: 'Фискальный номер',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.verified_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickDate(true),
+                      icon: const Icon(Icons.calendar_today, size: 18),
+                      label: Text(
+                        _dateFrom != null
+                            ? _formatDate(_dateFrom!).split(' ').first
+                            : 'Дата от',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickDate(false),
+                      icon: const Icon(Icons.calendar_today, size: 18),
+                      label: Text(
+                        _dateTo != null
+                            ? _formatDate(_dateTo!).split(' ').first
+                            : 'Дата до',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: TextStyle(color: AppColors.danger)),
+              ],
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _isSearching ? null : _search,
+                icon: _isSearching
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.search, size: 20),
+                label: Text(_isSearching ? 'Поиск...' : 'Искать'),
+              ),
+              if (_searched) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Найдено: $_total',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ],
+            ],
+          ),
+        ),
         Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
+          child: !_searched
+              ? const SizedBox.shrink()
+              : _filteredSales.isEmpty
                   ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.error_outline, size: 48, color: AppColors.danger),
-                          const SizedBox(height: 16),
-                          Text(_error!),
-                          const SizedBox(height: 16),
-                          FilledButton(
-                            onPressed: _load,
-                            child: const Text('Повторить'),
-                          ),
-                        ],
+                      child: Text(
+                        'Нет продаж по заданным условиям',
+                        style: TextStyle(color: AppColors.muted),
                       ),
                     )
-                  : SingleChildScrollView(
+                  : ListView.builder(
+                      controller: _scrollController,
                       padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          TextField(
-                            controller: _saleIdController,
-                            decoration: const InputDecoration(
-                              labelText: 'Номер чека',
-                              hintText: 'Необязательно',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.receipt_long),
+                      itemCount: _filteredSales.length + (hasMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index >= _filteredSales.length) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Center(
+                              child: CircularProgressIndicator(),
                             ),
-                            keyboardType: TextInputType.number,
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => _pickDate(true),
-                                  icon: const Icon(Icons.calendar_today, size: 18),
-                                  label: Text(
-                                    _dateFrom != null
-                                        ? _formatDate(_dateFrom!).split(' ').first
-                                        : 'Дата от',
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => _pickDate(false),
-                                  icon: const Icon(Icons.calendar_today, size: 18),
-                                  label: Text(
-                                    _dateTo != null
-                                        ? _formatDate(_dateTo!).split(' ').first
-                                        : 'Дата до',
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          FilledButton.icon(
-                            onPressed: _search,
-                            icon: const Icon(Icons.search, size: 20),
-                            label: const Text('Искать'),
-                          ),
-                          const SizedBox(height: 24),
-                          if (_searched) ...[
-                            Text(
-                              'Найдено: ${_filteredSales.length}',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 12),
-                            if (_filteredSales.isEmpty)
-                              Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Text(
-                                    'Нет продаж по заданным условиям',
-                                    style: TextStyle(color: AppColors.muted),
-                                  ),
-                                ),
-                              )
-                            else
-                              ListView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: _filteredSales.length,
-                                itemBuilder: (context, index) {
-                                  final sale = _filteredSales[index];
-                                  return Card(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    child: ListTile(
-                                      leading: CircleAvatar(
-                                        backgroundColor: sale.isReturned
-                                            ? AppColors.muted.withValues(alpha: 0.3)
-                                            : AppColors.primaryLight,
-                                        child: Icon(
-                                          Icons.receipt,
-                                          color: sale.isReturned
-                                              ? AppColors.muted
-                                              : AppColors.primary,
-                                        ),
-                                      ),
-                                      title: Text(
-                                        '${sale.totalPrice.toStringAsFixed(2)} ₸',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      subtitle: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              '№${sale.id} • ${_formatDate(sale.createdAt)} • к-во: ${sale.totalQty}',
-                                              style: TextStyle(
-                                                color: AppColors.muted,
-                                                fontSize: 12,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: sale.isReturned
-                                                  ? AppColors.muted.withValues(alpha: 0.2)
-                                                  : AppColors.primaryLight.withValues(alpha: 0.5),
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              sale.isReturned ? 'Возврат' : 'Продажа',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                color: sale.isReturned
-                                                    ? AppColors.muted
-                                                    : AppColors.primary,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      trailing: const Icon(Icons.chevron_right),
-                                      onTap: () async {
-                                        final result = await context.push<bool>(
-                                          '/sales/sale/${sale.id}',
-                                        );
-                                        if (result == true && mounted) _load();
-                                      },
-                                    ),
-                                  );
-                                },
-                              ),
-                          ],
-                        ],
-                      ),
+                          );
+                        }
+                        return _buildSaleTile(_filteredSales[index]);
+                      },
                     ),
         ),
       ],

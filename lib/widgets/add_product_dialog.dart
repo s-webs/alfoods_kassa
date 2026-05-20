@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
@@ -14,9 +16,7 @@ class AddProductDialog extends StatefulWidget {
   });
 
   final ApiService apiService;
-  /// При указании — товар добавляется через callback, диалог остаётся открытым.
   final void Function(Product)? onAddProduct;
-  /// При указании — сет добавляется через callback, диалог остаётся открытым.
   final void Function(ProductSet)? onAddSet;
 
   @override
@@ -25,28 +25,117 @@ class AddProductDialog extends StatefulWidget {
 
 class _AddProductDialogState extends State<AddProductDialog>
     with SingleTickerProviderStateMixin {
-  List<Product> _products = [];
-  List<Product> _filteredProducts = [];
-  List<ProductSet> _sets = [];
-  List<ProductSet> _filteredSets = [];
+  final List<Product> _products = [];
+  final List<ProductSet> _sets = [];
+  final _searchController = TextEditingController();
+  final ScrollController _productScrollController = ScrollController();
+  final ScrollController _setScrollController = ScrollController();
+  late TabController _tabController;
+
   String _searchQuery = '';
   bool _isLoading = true;
+  bool _isLoadingMoreProducts = false;
+  bool _isLoadingMoreSets = false;
   String? _error;
-  final _searchController = TextEditingController();
-  late TabController _tabController;
+  Timer? _searchDebounce;
+
+  int _productPage = 1;
+  int _productTotal = 0;
+  bool _hasMoreProducts = false;
+
+  int _setPage = 1;
+  int _setTotal = 0;
+  bool _hasMoreSets = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _productScrollController.addListener(_onProductScroll);
+    _setScrollController.addListener(_onSetScroll);
     _load();
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _productScrollController.dispose();
+    _setScrollController.dispose();
     _searchController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  String? get _search => _searchQuery.trim().isEmpty ? null : _searchQuery.trim();
+
+  void _onProductScroll() {
+    if (_isLoadingMoreProducts || !_hasMoreProducts) return;
+    if (_productScrollController.position.pixels >=
+        _productScrollController.position.maxScrollExtent - 120) {
+      _loadMoreProducts();
+    }
+  }
+
+  void _onSetScroll() {
+    if (_isLoadingMoreSets || !_hasMoreSets) return;
+    if (_setScrollController.position.pixels >=
+        _setScrollController.position.maxScrollExtent - 120) {
+      _loadMoreSets();
+    }
+  }
+
+  Future<void> _loadProducts({bool reset = false}) async {
+    if (reset) {
+      _productPage = 1;
+      _productTotal = 0;
+      _hasMoreProducts = false;
+      _products.clear();
+    }
+    final result = await widget.apiService.getProductsPaginated(
+      page: reset ? 1 : _productPage + 1,
+      active: true,
+      search: _search,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (reset) {
+        _products
+          ..clear()
+          ..addAll(result.data);
+      } else {
+        _products.addAll(result.data);
+      }
+      _productPage = result.currentPage;
+      _productTotal = result.total;
+      _hasMoreProducts = result.hasMore;
+    });
+  }
+
+  Future<void> _loadSets({bool reset = false}) async {
+    if (reset) {
+      _setPage = 1;
+      _setTotal = 0;
+      _hasMoreSets = false;
+      _sets.clear();
+    }
+    final result = await widget.apiService.getSetsPaginated(
+      page: reset ? 1 : _setPage + 1,
+      active: true,
+      search: _search,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (reset) {
+        _sets
+          ..clear()
+          ..addAll(result.data);
+      } else {
+        _sets.addAll(result.data);
+      }
+      _setPage = result.currentPage;
+      _setTotal = result.total;
+      _hasMoreSets = result.hasMore;
+    });
   }
 
   Future<void> _load() async {
@@ -55,24 +144,14 @@ class _AddProductDialogState extends State<AddProductDialog>
       _error = null;
     });
     try {
-      final results = await Future.wait([
-        widget.apiService.getProducts(active: true),
-        widget.apiService.getSets(active: true),
+      await Future.wait([
+        _loadProducts(reset: true),
+        _loadSets(reset: true),
       ]);
-      final products = results[0] as List<Product>;
-      final sets = results[1] as List<ProductSet>;
-      final sortedProducts =
-          List<Product>.from(products)..sort((a, b) => a.name.compareTo(b.name));
-      final sortedSets =
-          List<ProductSet>.from(sets)..sort((a, b) => a.name.compareTo(b.name));
-      setState(() {
-        _products = sortedProducts;
-        _sets = sortedSets;
-        _filterProducts();
-        _filterSets();
-        _isLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => _isLoading = false);
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Не удалось загрузить данные';
         _isLoading = false;
@@ -80,37 +159,52 @@ class _AddProductDialogState extends State<AddProductDialog>
     }
   }
 
-  void _filterProducts() {
-    final query = _searchQuery.toLowerCase().trim();
-    if (query.isEmpty) {
-      _filteredProducts = List.from(_products);
-    } else {
-      _filteredProducts = _products
-          .where((p) =>
-              p.name.toLowerCase().contains(query) ||
-              (p.barcode ?? '').toLowerCase().contains(query))
-          .toList();
+  Future<void> _loadMoreProducts() async {
+    if (_isLoadingMoreProducts || !_hasMoreProducts) return;
+    setState(() => _isLoadingMoreProducts = true);
+    try {
+      await _loadProducts(reset: false);
+    } catch (_) {
+      // ignore
+    } finally {
+      if (mounted) setState(() => _isLoadingMoreProducts = false);
     }
   }
 
-  void _filterSets() {
-    final query = _searchQuery.toLowerCase().trim();
-    if (query.isEmpty) {
-      _filteredSets = List.from(_sets);
-    } else {
-      _filteredSets =
-          _sets.where((s) =>
-              s.name.toLowerCase().contains(query) ||
-              (s.barcode ?? '').toLowerCase().contains(query)).toList();
+  Future<void> _loadMoreSets() async {
+    if (_isLoadingMoreSets || !_hasMoreSets) return;
+    setState(() => _isLoadingMoreSets = true);
+    try {
+      await _loadSets(reset: false);
+    } catch (_) {
+      // ignore
+    } finally {
+      if (mounted) setState(() => _isLoadingMoreSets = false);
+    }
+  }
+
+  Future<void> _reloadCatalog() async {
+    setState(() => _isLoading = true);
+    try {
+      await Future.wait([
+        _loadProducts(reset: true),
+        _loadSets(reset: true),
+      ]);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Не удалось загрузить данные';
+        _isLoading = false;
+      });
     }
   }
 
   void _onSearchChanged(String value) {
-    setState(() {
-      _searchQuery = value;
-      _filterProducts();
-      _filterSets();
-    });
+    setState(() => _searchQuery = value);
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), _reloadCatalog);
   }
 
   void _selectProduct(Product product) {
@@ -162,9 +256,9 @@ class _AddProductDialogState extends State<AddProductDialog>
             ),
             TabBar(
               controller: _tabController,
-              tabs: const [
-                Tab(text: 'Товары'),
-                Tab(text: 'Сеты'),
+              tabs: [
+                Tab(text: _productTotal > 0 ? 'Товары ($_productTotal)' : 'Товары'),
+                Tab(text: _setTotal > 0 ? 'Сеты ($_setTotal)' : 'Сеты'),
               ],
             ),
             const Divider(height: 1),
@@ -183,6 +277,11 @@ class _AddProductDialogState extends State<AddProductDialog>
                               ),
                               const SizedBox(height: 16),
                               Text(_error!),
+                              const SizedBox(height: 16),
+                              FilledButton(
+                                onPressed: _load,
+                                child: const Text('Повторить'),
+                              ),
                             ],
                           ),
                         )
@@ -201,16 +300,12 @@ class _AddProductDialogState extends State<AddProductDialog>
   }
 
   Widget _buildProductList() {
-    if (_filteredProducts.isEmpty) {
+    if (_products.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.search_off,
-              size: 48,
-              color: AppColors.muted,
-            ),
+            Icon(Icons.search_off, size: 48, color: AppColors.muted),
             const SizedBox(height: 16),
             Text(
               'Ничего не найдено',
@@ -221,18 +316,25 @@ class _AddProductDialogState extends State<AddProductDialog>
       );
     }
     return ListView.builder(
-      shrinkWrap: true,
-      itemCount: _filteredProducts.length,
+      controller: _productScrollController,
+      itemCount: _products.length + (_hasMoreProducts ? 1 : 0),
       itemBuilder: (context, index) {
-        final p = _filteredProducts[index];
+        if (index >= _products.length) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: _isLoadingMoreProducts
+                  ? const CircularProgressIndicator()
+                  : const SizedBox.shrink(),
+            ),
+          );
+        }
+        final p = _products[index];
         return ListTile(
           title: Text(p.name),
           subtitle: Text(
             '${p.effectivePrice.toStringAsFixed(2)} ₸ • ${p.unit}',
-            style: TextStyle(
-              color: AppColors.muted,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: AppColors.muted, fontSize: 12),
           ),
           trailing: const Icon(Icons.add),
           onTap: () => _selectProduct(p),
@@ -242,16 +344,12 @@ class _AddProductDialogState extends State<AddProductDialog>
   }
 
   Widget _buildSetList() {
-    if (_filteredSets.isEmpty) {
+    if (_sets.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.search_off,
-              size: 48,
-              color: AppColors.muted,
-            ),
+            Icon(Icons.search_off, size: 48, color: AppColors.muted),
             const SizedBox(height: 16),
             Text(
               'Ничего не найдено',
@@ -262,18 +360,25 @@ class _AddProductDialogState extends State<AddProductDialog>
       );
     }
     return ListView.builder(
-      shrinkWrap: true,
-      itemCount: _filteredSets.length,
+      controller: _setScrollController,
+      itemCount: _sets.length + (_hasMoreSets ? 1 : 0),
       itemBuilder: (context, index) {
-        final s = _filteredSets[index];
+        if (index >= _sets.length) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: _isLoadingMoreSets
+                  ? const CircularProgressIndicator()
+                  : const SizedBox.shrink(),
+            ),
+          );
+        }
+        final s = _sets[index];
         return ListTile(
           title: Text(s.name),
           subtitle: Text(
             '${s.effectivePrice.toStringAsFixed(2)} ₸ • шт',
-            style: TextStyle(
-              color: AppColors.muted,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: AppColors.muted, fontSize: 12),
           ),
           trailing: const Icon(Icons.add),
           onTap: () => _selectSet(s),

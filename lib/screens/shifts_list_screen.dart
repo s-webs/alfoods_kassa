@@ -19,27 +19,59 @@ class ShiftsListScreen extends StatefulWidget {
 }
 
 class _ShiftsListScreenState extends State<ShiftsListScreen> {
-  List<Shift> _shifts = [];
+  final List<Shift> _shifts = [];
+  final ScrollController _scrollController = ScrollController();
+
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   String? _error;
+  int _currentPage = 1;
+  int _lastPage = 1;
+  int _total = 0;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _scrollController.addListener(_onScroll);
+    _load(reset: true);
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-    try {
-      final list = await widget.apiService.getShifts();
-      if (!mounted) return;
-      final sorted = List<Shift>.from(list)..sort((a, b) => b.id.compareTo(a.id));
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  bool get _hasMore => _currentPage < _lastPage;
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || _isLoadingMore || !_hasMore) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _load({bool reset = false}) async {
+    if (reset) {
       setState(() {
-        _shifts = sorted;
+        _isLoading = true;
+        _error = null;
+        _currentPage = 1;
+        _shifts.clear();
+      });
+    }
+
+    try {
+      final page = await widget.apiService.getShifts(page: 1);
+      if (!mounted) return;
+      setState(() {
+        _shifts
+          ..clear()
+          ..addAll(page.data);
+        _currentPage = page.currentPage;
+        _lastPage = page.lastPage;
+        _total = page.total;
         _isLoading = false;
       });
     } catch (e) {
@@ -48,6 +80,25 @@ class _ShiftsListScreenState extends State<ShiftsListScreen> {
         _error = 'Не удалось загрузить смены';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final page = await widget.apiService.getShifts(page: _currentPage + 1);
+      if (!mounted) return;
+      setState(() {
+        _shifts.addAll(page.data);
+        _currentPage = page.currentPage;
+        _lastPage = page.lastPage;
+        _total = page.total;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoadingMore = false);
     }
   }
 
@@ -79,11 +130,21 @@ class _ShiftsListScreenState extends State<ShiftsListScreen> {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  'Продажи',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Продажи',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    if (_total > 0)
+                      Text(
+                        'Смен: $_total',
+                        style: TextStyle(color: AppColors.muted, fontSize: 13),
                       ),
+                  ],
                 ),
               ),
               TextButton.icon(
@@ -108,7 +169,7 @@ class _ShiftsListScreenState extends State<ShiftsListScreen> {
                           Text(_error!),
                           const SizedBox(height: 16),
                           FilledButton(
-                            onPressed: _load,
+                            onPressed: () => _load(reset: true),
                             child: const Text('Повторить'),
                           ),
                         ],
@@ -130,11 +191,20 @@ class _ShiftsListScreenState extends State<ShiftsListScreen> {
                           ),
                         )
                       : RefreshIndicator(
-                          onRefresh: _load,
+                          onRefresh: () => _load(reset: true),
                           child: ListView.builder(
+                            controller: _scrollController,
                             padding: const EdgeInsets.all(16),
-                            itemCount: _shifts.length,
+                            itemCount: _shifts.length + (_hasMore ? 1 : 0),
                             itemBuilder: (context, index) {
+                              if (index >= _shifts.length) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                );
+                              }
                               final shift = _shifts[index];
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
