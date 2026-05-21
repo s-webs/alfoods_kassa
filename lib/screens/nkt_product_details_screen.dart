@@ -9,6 +9,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/theme.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../utils/product_search.dart';
 import '../utils/toast.dart';
 import '../widgets/nkt_variants_ui.dart';
 
@@ -192,13 +193,15 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
   String? get _effectiveBarcode {
     final fromField = _barcodeController.text.trim();
     if (fromField.isNotEmpty) return fromField;
-    final b = _product?.barcode;
-    if (b != null && b.isNotEmpty) return b;
+    if (_product != null && productHasScannableBarcode(_product!)) {
+      final display = productDisplayBarcode(_product!);
+      if (display != '—') return display;
+    }
     return null;
   }
 
   Future<void> _loadCachedNktVariants(Product p) async {
-    if (p.barcode == null || p.barcode!.isEmpty) return;
+    if (!productHasScannableBarcode(p)) return;
     try {
       final result = await widget.apiService.nktSearch(widget.productId);
       if (!mounted) return;

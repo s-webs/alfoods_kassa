@@ -5,6 +5,7 @@ class Product {
   final String? newName;
   final String slug;
   final String? barcode;
+  final List<String> extraBarcodes;
   final double price;
   final double? discountPrice;
   final double purchasePrice;
@@ -39,6 +40,7 @@ class Product {
     this.newName,
     this.slug = '',
     this.barcode,
+    this.extraBarcodes = const [],
     required this.price,
     this.discountPrice,
     this.purchasePrice = 0,
@@ -80,6 +82,14 @@ class Product {
     return DateTime.tryParse(v.toString());
   }
 
+  static List<String> _parseStringList(dynamic v) {
+    if (v is! List) return const [];
+    return v
+        .map((e) => e.toString().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
   static bool? _parseBool(dynamic v) {
     if (v == null) return null;
     if (v is bool) return v;
@@ -109,6 +119,7 @@ class Product {
       newName: json['new_name'] as String?,
       slug: json['slug'] as String? ?? '',
       barcode: json['barcode'] as String?,
+      extraBarcodes: _parseStringList(json['extra_barcodes']),
       price: (json['price'] as num?)?.toDouble() ?? 0,
       discountPrice: json['discount_price'] != null
           ? (json['discount_price'] as num).toDouble()
@@ -162,6 +173,9 @@ class Product {
     }
     if (images != null) {
       map['images'] = images;
+    }
+    if (extraBarcodes.isNotEmpty) {
+      map['extra_barcodes'] = extraBarcodes;
     }
     return map;
   }

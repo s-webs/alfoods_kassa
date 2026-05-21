@@ -5,6 +5,7 @@ import '../core/theme.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
 import '../utils/time_util.dart';
+import '../widgets/z_report_dialog.dart';
 
 class ShiftsListScreen extends StatefulWidget {
   const ShiftsListScreen({
@@ -206,31 +207,79 @@ class _ShiftsListScreenState extends State<ShiftsListScreen> {
                                 );
                               }
                               final shift = _shifts[index];
+                              final zReport = shift.webkassaZReport;
+                              final showZ = !shift.isOpen &&
+                                  ZReportDialog.hasViewableData(zReport);
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
-                                child: ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor: AppColors.primaryLight,
-                                    child: Icon(
-                                      shift.isOpen
-                                          ? Icons.play_circle_filled
-                                          : Icons.stop_circle,
-                                      color: shift.isOpen
-                                          ? AppColors.accent
-                                          : AppColors.muted,
-                                    ),
-                                  ),
-                                  title: Text(_formatShiftTitle(shift)),
-                                  subtitle: Text(
-                                    shift.isOpen ? 'Открыта' : 'Закрыта',
-                                    style: TextStyle(
-                                      color: AppColors.muted,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  trailing: const Icon(Icons.chevron_right),
+                                child: InkWell(
                                   onTap: () => context.push(
                                     '/sales/shift/${shift.id}',
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        CircleAvatar(
+                                          backgroundColor: AppColors.primaryLight,
+                                          child: Icon(
+                                            shift.isOpen
+                                                ? Icons.play_circle_filled
+                                                : Icons.stop_circle,
+                                            color: shift.isOpen
+                                                ? AppColors.accent
+                                                : AppColors.muted,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                _formatShiftTitle(shift),
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              Text(
+                                                shift.isOpen
+                                                    ? 'Открыта'
+                                                    : 'Закрыта',
+                                                style: TextStyle(
+                                                  color: AppColors.muted,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (showZ)
+                                          IconButton(
+                                            tooltip: 'Z-отчёт WebKassa',
+                                            icon: const Icon(
+                                              Icons.summarize_outlined,
+                                            ),
+                                            onPressed: () {
+                                              ZReportDialog.show(
+                                                context,
+                                                zReport: zReport!,
+                                                zReportAt:
+                                                    shift.webkassaZReportAt,
+                                              );
+                                            },
+                                          ),
+                                        Icon(
+                                          Icons.chevron_right,
+                                          color: AppColors.muted,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               );

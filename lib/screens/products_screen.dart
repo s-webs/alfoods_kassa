@@ -10,6 +10,7 @@ import 'package:pdf/pdf.dart';
 import '../core/theme.dart';
 import '../models/category.dart';
 import '../models/product.dart';
+import '../utils/product_search.dart';
 import '../services/api_service.dart';
 import '../services/label_pdf_service.dart';
 import '../utils/toast.dart';
@@ -672,16 +673,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final query = _searchQuery.trim().toLowerCase();
     final List<Product> visibleProducts = query.isEmpty
         ? _products
-        : _products.where((p) {
-            final idStr = p.id.toString();
-            final name = p.name.toLowerCase();
-            final newName = (p.newName ?? '').toLowerCase();
-            final barcode = (p.barcode ?? '').toLowerCase();
-            return idStr.contains(query) ||
-                name.contains(query) ||
-                newName.contains(query) ||
-                barcode.contains(query);
-          }).toList();
+        : _products.where((p) => productMatchesQuery(p, query)).toList();
     final List<Product> sortedProducts = List<Product>.from(visibleProducts)
       ..sort(_compareProducts);
 

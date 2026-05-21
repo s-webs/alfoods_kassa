@@ -17,6 +17,7 @@ class CheckoutService {
     int? draftSaleId,
     PosTransactionDto? posTransaction,
     String? customerXin,
+    String? externalCheckNumber,
   }) async {
     await _deleteDraftIfAny(draftSaleId);
 
@@ -27,6 +28,7 @@ class CheckoutService {
         items: items,
         paymentMethod: paymentMethod,
         customerXin: customerXin,
+        externalCheckNumber: externalCheckNumber,
         posTransaction: posTransaction?.toJson(),
       );
     } on ApiWebkassaException {

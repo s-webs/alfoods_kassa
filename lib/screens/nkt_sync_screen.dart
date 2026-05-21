@@ -6,6 +6,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/theme.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../utils/product_search.dart';
 import '../utils/toast.dart';
 
 enum _NktFilter { all, unlinked, linked, notFound, noBarcode }
@@ -98,23 +99,21 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
           // «Без привязки» — то, с чем реально можно работать:
           // не привязано, есть штрихкод, и не помечено как «не найдено в НКТ».
           if (p.isLinkedToNkt) return false;
-          if (p.barcode == null || p.barcode!.isEmpty) return false;
+          if (!productHasScannableBarcode(p)) return false;
           if (p.isNktNotFound) return false;
           break;
         case _NktFilter.notFound:
           if (!p.isNktNotFound) return false;
           break;
         case _NktFilter.noBarcode:
-          if (p.barcode != null && p.barcode!.isNotEmpty) return false;
+          if (productHasScannableBarcode(p)) return false;
           break;
         case _NktFilter.all:
           break;
       }
       if (q.isEmpty) return true;
-      final name = p.name.toLowerCase();
-      final bc = (p.barcode ?? '').toLowerCase();
       final ntin = (p.nktNtin ?? '').toLowerCase();
-      return name.contains(q) || bc.contains(q) || ntin.contains(q);
+      return productMatchesQuery(p, q) || ntin.contains(q);
     }).toList();
   }
 
@@ -123,7 +122,7 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
     setState(() {
       if (value == true) {
         for (final p in visible) {
-          if (p.barcode != null && p.barcode!.isNotEmpty) {
+          if (productHasScannableBarcode(p)) {
             _selectedIds.add(p.id);
           }
         }
@@ -137,14 +136,14 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
 
   bool get _allVisibleSelected {
     final visible = _filtered.where(
-      (p) => p.barcode != null && p.barcode!.isNotEmpty,
+      productHasScannableBarcode,
     );
     if (visible.isEmpty) return false;
     return visible.every((p) => _selectedIds.contains(p.id));
   }
 
   Future<void> _onSingleSync(Product product) async {
-    if (product.barcode == null || product.barcode!.isEmpty) {
+    if (!productHasScannableBarcode(product)) {
       showToast(context, 'У товара нет штрихкода');
       return;
     }
@@ -186,7 +185,11 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
         }
       } catch (_) {}
       if (mounted) {
-        showToast(context, 'В НКТ ничего не найдено по штрихкоду ${product.barcode}');
+        final tried = res.barcodesTried;
+        final triedText = tried.isNotEmpty
+            ? tried.join(', ')
+            : (product.barcode ?? product.extraBarcodes.join(', '));
+        showToast(context, 'В НКТ ничего не найдено по штрихкодам: $triedText');
       }
       return;
     }
@@ -306,7 +309,7 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
   Future<void> _onBulkSync() async {
     final selected = _products
         .where((p) => _selectedIds.contains(p.id))
-        .where((p) => p.barcode != null && p.barcode!.isNotEmpty)
+        .where(productHasScannableBarcode)
         .toList();
 
     if (selected.isEmpty) {
@@ -677,7 +680,7 @@ class _ProductRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasBarcode = product.barcode != null && product.barcode!.isNotEmpty;
+    final hasBarcode = productHasScannableBarcode(product);
 
     return InkWell(
       onTap: onDetails,
@@ -718,7 +721,7 @@ class _ProductRow extends StatelessWidget {
             SizedBox(
               width: 160,
               child: Text(
-                hasBarcode ? product.barcode! : '—',
+                hasBarcode ? productDisplayBarcode(product) : '—',
                 style: TextStyle(
                   color: hasBarcode ? AppColors.surface : AppColors.muted,
                   fontFamily: 'monospace',
@@ -863,7 +866,7 @@ class _RowActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasBarcode = product.barcode != null && product.barcode!.isNotEmpty;
+    final hasBarcode = productHasScannableBarcode(product);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,

@@ -11,8 +11,10 @@ import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../services/realtime_service.dart';
 import '../state/cashier_state.dart';
+import '../state/connectivity_state.dart';
 import '../state/task_state.dart';
 import '../utils/toast.dart';
+import '../widgets/connection_status_dots.dart';
 import '../widgets/today_tasks_dropdown.dart';
 
 class AppShell extends StatefulWidget {
@@ -38,6 +40,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late final CashierState _cashierState;
   late final TaskState _taskState;
+  late final ConnectivityState _connectivityState;
   StreamSubscription? _realtimeSub;
   Timer? _newOrdersPollTimer;
   Timer? _newOrdersDebounce;
@@ -48,7 +51,9 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     _cashierState = CashierState();
     _taskState = TaskState(widget.apiService);
+    _connectivityState = ConnectivityState(widget.apiService);
     if (widget.storage.token != null && widget.storage.token!.isNotEmpty) {
+      _connectivityState.start();
       _initRealtime();
       _initNotifications();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -129,6 +134,7 @@ class _AppShellState extends State<AppShell> {
     _realtimeSub?.cancel();
     _newOrdersPollTimer?.cancel();
     _newOrdersDebounce?.cancel();
+    _connectivityState.dispose();
     super.dispose();
   }
 
@@ -151,12 +157,14 @@ class _AppShellState extends State<AppShell> {
             },
           ),
           Expanded(
-            child: TaskStateScope(
-              state: _taskState,
-              child: CashierStateScope(
-                state: _cashierState,
-                child: Column(
-                  children: [
+            child: ConnectivityStateScope(
+              state: _connectivityState,
+              child: TaskStateScope(
+                state: _taskState,
+                child: CashierStateScope(
+                  state: _cashierState,
+                  child: Column(
+                    children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -171,14 +179,16 @@ class _AppShellState extends State<AppShell> {
                         ),
                       ),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
+                          const ConnectionStatusDots(),
+                          const Spacer(),
                           TodayTasksDropdown(),
                         ],
                       ),
                     ),
                     Expanded(child: widget.child),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

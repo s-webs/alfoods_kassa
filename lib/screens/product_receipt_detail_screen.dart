@@ -11,6 +11,7 @@ import '../services/api_service.dart';
 import '../utils/time_util.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
+import '../widgets/quick_create_product_dialog.dart';
 
 class ProductReceiptDetailScreen extends StatefulWidget {
   const ProductReceiptDetailScreen({
@@ -201,10 +202,10 @@ class _ProductReceiptDetailScreenState
         } else if (result.isSet && result.productSet != null) {
           showToast(context, 'Сеты не поддерживаются в поступлениях');
         } else {
-          showToast(context, 'Товар с штрихкодом "$barcode" не найден');
+          await _offerCreateProductForBarcode(barcode);
         }
       } else {
-        showToast(context, 'Товар с штрихкодом "$barcode" не найден');
+        await _offerCreateProductForBarcode(barcode);
       }
     } catch (_) {
       if (mounted) {
@@ -431,6 +432,53 @@ class _ProductReceiptDetailScreenState
     if (mounted) _refocusBarcodeField();
   }
 
+  Future<void> _showCreateProductDialog({
+    String? initialBarcode,
+    String? initialName,
+  }) async {
+    final product = await showDialog<Product?>(
+      context: context,
+      builder: (ctx) => QuickCreateProductDialog(
+        apiService: widget.apiService,
+        initialBarcode: initialBarcode,
+        initialName: initialName,
+      ),
+    );
+    if (product != null && mounted) {
+      _addProduct(product);
+      showToast(context, 'Товар создан и добавлен в поступление');
+    }
+    if (mounted) _refocusBarcodeField();
+  }
+
+  Future<void> _offerCreateProductForBarcode(String barcode) async {
+    final create = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Товар не найден'),
+        content: Text(
+          'Штрихкод «$barcode» не найден в каталоге. Создать новый товар?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Создать'),
+          ),
+        ],
+      ),
+    );
+    if (create == true && mounted) {
+      await _showCreateProductDialog(
+        initialBarcode: barcode,
+        initialName: 'Товар $barcode',
+      );
+    }
+  }
+
   String _formatDate(DateTime dt) {
     final t = TimeUtil.toUtcPlus5Wall(dt);
     return '${t.day.toString().padLeft(2, '0')}.${t.month.toString().padLeft(2, '0')}.${t.year} '
@@ -542,6 +590,14 @@ class _ProductReceiptDetailScreenState
                         onPressed: _showAddProductDialog,
                         icon: const Icon(Icons.add),
                         label: const Text('Добавить товар вручную'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showCreateProductDialog(),
+                        icon: const Icon(Icons.add_box_outlined),
+                        label: const Text('Создать товар'),
                       ),
                     ),
                     IconButton(
@@ -848,6 +904,17 @@ class _ProductReceiptDetailScreenState
                         icon: const Icon(Icons.add),
                         label: const Text('Добавить товар'),
                         style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 48),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showCreateProductDialog(),
+                        icon: const Icon(Icons.add_box_outlined),
+                        label: const Text('Создать товар'),
+                        style: OutlinedButton.styleFrom(
                           minimumSize: const Size(0, 48),
                         ),
                       ),

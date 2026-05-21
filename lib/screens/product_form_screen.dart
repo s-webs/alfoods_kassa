@@ -49,7 +49,9 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
   final _stockController = TextEditingController();
   final _stockThresholdController = TextEditingController();
   final _barcodeController = TextEditingController();
+  final _extraBarcodeInputController = TextEditingController();
   final _labelDescriptionController = TextEditingController();
+  List<String> _extraBarcodes = [];
 
   Product? _product;
   List<Category> _categories = [];
@@ -277,6 +279,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     _stockController.dispose();
     _stockThresholdController.dispose();
     _barcodeController.dispose();
+    _extraBarcodeInputController.dispose();
     _labelDescriptionController.dispose();
     super.dispose();
   }
@@ -313,6 +316,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
           _stockController.text = p.stock.toString();
           _stockThresholdController.text = p.stockThreshold.toString();
           _barcodeController.text = p.barcode ?? '';
+          _extraBarcodes = List<String>.from(p.extraBarcodes);
           _selectedCategoryId = p.categoryId;
           _selectedUnit = p.unit;
           _isActive = p.isActive;
@@ -430,6 +434,24 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     return defaultFn();
   }
 
+  void _addExtraBarcode() {
+    final code = _extraBarcodeInputController.text.trim();
+    if (code.isEmpty) return;
+    final primary = _barcodeController.text.trim();
+    if (primary.isNotEmpty && code == primary) {
+      showToast(context, 'Совпадает с основным штрихкодом');
+      return;
+    }
+    if (_extraBarcodes.contains(code)) {
+      showToast(context, 'Штрихкод уже добавлен');
+      return;
+    }
+    setState(() {
+      _extraBarcodes.add(code);
+      _extraBarcodeInputController.clear();
+    });
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final name = _nameController.text.trim();
@@ -454,6 +476,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
         'barcode': _barcodeController.text.trim().isEmpty
             ? null
             : _barcodeController.text.trim(),
+        'extra_barcodes': _extraBarcodes,
         'stock': double.tryParse(_stockController.text) ?? 0,
         'stock_threshold': double.tryParse(_stockThresholdController.text) ?? 0,
         'is_active': _isActive,
@@ -876,6 +899,54 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                   fit: BoxFit.contain,
                 ),
               ],
+              const SizedBox(height: 16),
+              const Text(
+                'Дополнительные штрихкоды',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Альтернативные коды для сканирования на кассе',
+                style: TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+              const SizedBox(height: 8),
+              if (_extraBarcodes.isNotEmpty)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _extraBarcodes.map((code) {
+                    return InputChip(
+                      label: Text(code),
+                      onDeleted: () {
+                        setState(() => _extraBarcodes.remove(code));
+                      },
+                    );
+                  }).toList(),
+                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _extraBarcodeInputController,
+                      decoration: const InputDecoration(
+                        labelText: 'Новый штрихкод',
+                        hintText: 'Введите и нажмите +',
+                      ),
+                      onFieldSubmitted: (_) => _addExtraBarcode(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: IconButton(
+                      onPressed: _addExtraBarcode,
+                      icon: const Icon(Icons.add),
+                      tooltip: 'Добавить',
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 24),
               ExpansionTile(
                 title: const Text('Конструктор этикетки', style: TextStyle(fontWeight: FontWeight.w600)),

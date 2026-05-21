@@ -178,15 +178,15 @@ class ApiService {
     return Shift.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<Shift> closeShift(int shiftId, {required int cashierId}) async {
+  Future<ShiftCloseResult> closeShift(int shiftId, {required int cashierId}) async {
     try {
       final response = await _apiClient.dio.post(
         'api/shifts/$shiftId/close',
         data: <String, dynamic>{'cashier_id': cashierId},
       );
-      final data = response.data as Map<String, dynamic>;
-      final shiftJson = data['shift'] as Map<String, dynamic>? ?? data;
-      return Shift.fromJson(shiftJson);
+      return ShiftCloseResult.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
     } on DioException catch (e) {
       if (e.response != null) {
         throw ApiWebkassaException.fromDio(e);
@@ -801,6 +801,7 @@ class ApiService {
     List<Map<String, dynamic>>? payments,
     Map<String, dynamic>? posTransaction,
     String? customerXin,
+    String? externalCheckNumber,
     String? customerEmail,
     String? customerPhone,
     required List<Map<String, dynamic>> items,
@@ -817,18 +818,22 @@ class ApiService {
       data['payment_method'] = paymentMethod.apiValue;
     }
 
+    if (customerXin != null && customerXin.isNotEmpty) {
+      data['customer_xin'] = customerXin;
+    }
+    if (externalCheckNumber != null && externalCheckNumber.isNotEmpty) {
+      data['external_check_number'] = externalCheckNumber;
+    }
+    if (customerEmail != null && customerEmail.isNotEmpty) {
+      data['customer_email'] = customerEmail;
+    }
+    if (customerPhone != null && customerPhone.isNotEmpty) {
+      data['customer_phone'] = customerPhone;
+    }
+
     if (fiscalize) {
       data['fiscalize'] = true;
       data['payments'] = payments ?? [];
-      if (customerXin != null && customerXin.isNotEmpty) {
-        data['customer_xin'] = customerXin;
-      }
-      if (customerEmail != null && customerEmail.isNotEmpty) {
-        data['customer_email'] = customerEmail;
-      }
-      if (customerPhone != null && customerPhone.isNotEmpty) {
-        data['customer_phone'] = customerPhone;
-      }
     }
 
     if (posTransaction != null) {

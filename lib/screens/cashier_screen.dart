@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/storage.dart';
 import '../core/theme.dart';
@@ -27,8 +28,8 @@ import '../utils/time_util.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
 import '../widgets/credit_sale_dialog.dart';
-import '../widgets/customer_xin_dialog.dart';
 import '../widgets/fiscal_receipt_dialog.dart';
+import '../widgets/z_report_dialog.dart';
 import '../utils/webkassa_error_display.dart';
 import '../widgets/kaspi_pos_payment_dialog.dart';
 import '../widgets/pos_payment_method_dialog.dart';
@@ -64,6 +65,9 @@ class _CashierScreenState extends State<CashierScreen> {
   String? _error;
   final FocusNode _barcodeFocusNode = FocusNode();
   final TextEditingController _barcodeController = TextEditingController();
+  late final TextEditingController _customerXinController;
+  late final TextEditingController _externalCheckNumberController;
+  String? _customerXinError;
   bool _isBarcodeLoading = false;
   int? _editingNameIndex;
   int? _editingPriceIndex;
@@ -76,6 +80,8 @@ class _CashierScreenState extends State<CashierScreen> {
   @override
   void initState() {
     super.initState();
+    _customerXinController = TextEditingController();
+    _externalCheckNumberController = TextEditingController();
     _kaspiPosService = KaspiPosService(widget.storage);
     _posPaymentStore = PosPaymentStore(widget.storage);
     _cashierResolver = CashierResolverService(widget.storage);
@@ -96,6 +102,8 @@ class _CashierScreenState extends State<CashierScreen> {
     _priceEditFocusNode?.dispose();
     _barcodeFocusNode.dispose();
     _barcodeController.dispose();
+    _customerXinController.dispose();
+    _externalCheckNumberController.dispose();
     _nameEditController?.dispose();
     _priceEditController?.dispose();
     super.dispose();
@@ -164,7 +172,8 @@ class _CashierScreenState extends State<CashierScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Закрыть смену?'),
         content: const Text(
-          'Будет сформирован Z-отчёт в WebKassa и закрыта смена в системе. Продолжить?',
+          'Если за смену были ОФД-продажи, будет сформирован Z-отчёт в WebKassa. '
+          'Без ОФД-продаж смена закроется только в системе. Продолжить?',
         ),
         actions: [
           TextButton(
@@ -186,10 +195,27 @@ class _CashierScreenState extends State<CashierScreen> {
       _error = null;
     });
     try {
-      await widget.apiService.closeShift(shift.id, cashierId: cashierId);
+      final result =
+          await widget.apiService.closeShift(shift.id, cashierId: cashierId);
       await _loadShifts();
-      if (mounted) {
-        setState(() => _isClosingShift = false);
+      if (!mounted) return;
+      setState(() => _isClosingShift = false);
+      final toast = result.message ??
+          (result.zReportSkipped
+              ? 'Смена закрыта (ОФД-продаж не было)'
+              : result.zReport != null
+                  ? 'Смена закрыта. Z-отчёт №${result.zReport!['ReportNumber'] ?? '—'}'
+                  : result.webkassaShiftAlreadyClosed
+                      ? 'Смена закрыта (в WebKassa уже была закрыта)'
+                      : 'Смена закрыта');
+      showToast(context, toast);
+      final zReport = result.shift.webkassaZReport ?? result.zReport;
+      if (ZReportDialog.hasViewableData(zReport)) {
+        await ZReportDialog.show(
+          context,
+          zReport: zReport!,
+          zReportAt: result.shift.webkassaZReportAt,
+        );
       }
     } on ApiWebkassaException catch (e) {
       if (!mounted) return;
@@ -1013,31 +1039,75 @@ class _CashierScreenState extends State<CashierScreen> {
       return;
     }
 
-    final xinResult = await CustomerXinDialog.show(
-      context,
-      initialValue: widget.storage.rememberedCustomerXin,
-    );
-    if (xinResult == null || !mounted) {
+    final customerXin = _readCustomerXinForCheckout();
+    if (customerXin == _invalidCustomerXin) {
+      _refocusBarcodeField();
+      return;
+    }
+    final externalCheck = _readExternalCheckNumberForCheckout();
+    if (externalCheck == _invalidExternalCheck) {
       _refocusBarcodeField();
       return;
     }
 
-    if (xinResult.rememberForShift && xinResult.customerXin != null) {
-      await widget.storage.setRememberedCustomerXin(xinResult.customerXin);
-    } else if (xinResult.rememberForShift) {
-      await widget.storage.setRememberedCustomerXin(null);
-    }
-
     if (method.requiresKaspiTerminal) {
-      await _checkoutWithKaspi(method, customerXin: xinResult.customerXin);
+      await _checkoutWithKaspi(
+        method,
+        customerXin: customerXin,
+        externalCheckNumber: externalCheck,
+      );
     } else {
-      await _checkoutOfdDirect(method, customerXin: xinResult.customerXin);
+      await _checkoutOfdDirect(
+        method,
+        customerXin: customerXin,
+        externalCheckNumber: externalCheck,
+      );
+    }
+  }
+
+  static const _invalidCustomerXin = '__invalid__';
+  static const _invalidExternalCheck = '__invalid_ext__';
+
+  /// `null` — пусто (допустимо), строка — 12 цифр, [_invalidCustomerXin] — ошибка формата.
+  String? _readCustomerXinForCheckout() {
+    final raw = _customerXinController.text.trim();
+    if (raw.isEmpty) {
+      setState(() => _customerXinError = null);
+      return null;
+    }
+    if (RegExp(r'^\d{12}$').hasMatch(raw)) {
+      setState(() => _customerXinError = null);
+      return raw;
+    }
+    setState(() => _customerXinError = 'ИИН/БИН: ровно 12 цифр');
+    showToast(context, 'ИИН/БИН: ровно 12 цифр');
+    return _invalidCustomerXin;
+  }
+
+  String? _readExternalCheckNumberForCheckout() {
+    final raw = _externalCheckNumberController.text.trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+    if (raw.length <= 50) {
+      return raw;
+    }
+    showToast(context, 'ExternalCheckNumber: не более 50 символов');
+    return _invalidExternalCheck;
+  }
+
+  void _clearFiscalCheckoutFields() {
+    _customerXinController.clear();
+    _externalCheckNumberController.clear();
+    if (_customerXinError != null && mounted) {
+      setState(() => _customerXinError = null);
     }
   }
 
   Future<void> _checkoutOfdDirect(
     SalePaymentMethod method, {
     String? customerXin,
+    String? externalCheckNumber,
   }) async {
     final state = CashierStateScope.of(context);
     final shift = _currentOpenShift!;
@@ -1054,10 +1124,12 @@ class _CashierScreenState extends State<CashierScreen> {
         items: state.cart.map((c) => c.toJson()).toList(),
         paymentMethod: method,
         customerXin: customerXin,
+        externalCheckNumber: externalCheckNumber,
         draftSaleId: state.lastSavedSaleId,
       );
       if (!mounted) return;
       await _showFiscalSuccess(result.fiscal);
+      _clearFiscalCheckoutFields();
       state.clearCart();
       setState(() => _isPosPaying = false);
       _refocusBarcodeField();
@@ -1079,6 +1151,7 @@ class _CashierScreenState extends State<CashierScreen> {
   Future<void> _checkoutWithKaspi(
     SalePaymentMethod method, {
     String? customerXin,
+    String? externalCheckNumber,
   }) async {
     final state = CashierStateScope.of(context);
     final shift = _currentOpenShift!;
@@ -1152,6 +1225,7 @@ class _CashierScreenState extends State<CashierScreen> {
         items: state.cart.map((c) => c.toJson()).toList(),
         paymentMethod: method,
         customerXin: customerXin,
+        externalCheckNumber: externalCheckNumber,
         draftSaleId: state.lastSavedSaleId,
         posTransaction: PosTransactionDto(
           method: terminalMethod,
@@ -1175,6 +1249,7 @@ class _CashierScreenState extends State<CashierScreen> {
 
       if (!mounted) return;
       await _showFiscalSuccess(fiscalResult.fiscal);
+      _clearFiscalCheckoutFields();
       state.clearCart();
       setState(() => _isPosPaying = false);
       _refocusBarcodeField();
@@ -1268,6 +1343,7 @@ class _CashierScreenState extends State<CashierScreen> {
         showToast(context, 'Продажа оформлена');
       }
 
+      _clearFiscalCheckoutFields();
       state.clearCart();
       setState(() {
         _isPaying = false;
@@ -1337,6 +1413,7 @@ class _CashierScreenState extends State<CashierScreen> {
         );
       }
       if (!mounted) return;
+      _clearFiscalCheckoutFields();
       state.clearCart();
       setState(() => _isSelling = false);
       if (mounted) {
@@ -1363,6 +1440,7 @@ class _CashierScreenState extends State<CashierScreen> {
         await widget.apiService.deleteSale(state.lastSavedSaleId!);
       }
       if (!mounted) return;
+      _clearFiscalCheckoutFields();
       state.clearCart();
       setState(() => _isResetting = false);
       if (mounted) {
@@ -1837,8 +1915,60 @@ class _CashierScreenState extends State<CashierScreen> {
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          Expanded(
+            flex: 4,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _customerXinController,
+                  enabled: !_isSelling && !_isPosPaying,
+                  decoration: InputDecoration(
+                    labelText: 'ИИН/БИН покупателя',
+                    hintText: '12 цифр, необязательно',
+                    isDense: true,
+                    errorText: _customerXinError,
+                    border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(12),
+                  ],
+                  onChanged: (_) {
+                    if (_customerXinError != null) {
+                      setState(() => _customerXinError = null);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _externalCheckNumberController,
+                  enabled: !_isSelling && !_isPosPaying,
+                  decoration: const InputDecoration(
+                    labelText: 'ExternalCheckNumber (тест)',
+                    hintText: 'Пусто = UUID с сервера, до 50 симв.',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(50),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
           FilledButton.icon(
             onPressed: !_isSelling ? _showAddProductDialog : null,
             icon: const Icon(Icons.add),

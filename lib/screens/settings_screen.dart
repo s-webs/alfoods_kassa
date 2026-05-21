@@ -149,12 +149,32 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Future<void> _checkWebkassaConnection() async {
-    await _refreshWebkassaToken();
-    if (!mounted) return;
+    setState(() {
+      _webkassaBusy = true;
+      _webkassaStatusMessage = null;
+    });
     try {
+      final health = await widget.apiService.getWebkassaHealth();
+      final cashboxes = await widget.apiService.getWebkassaCashboxes();
       await _cashierResolver.refreshCashierId(widget.apiService);
-      await _loadWebkassaInfo();
-    } catch (_) {}
+      if (!mounted) return;
+      final configured = health['configured'] == true;
+      final tokenPresent = health['token_present'] == true;
+      setState(() {
+        _webkassaHealth = health;
+        _webkassaCashboxes = cashboxes;
+        _webkassaBusy = false;
+        _webkassaStatusMessage = configured && tokenPresent
+            ? 'Связь с WebKassa установлена (${health['environment'] ?? '—'}).'
+            : 'WebKassa не настроена или токен не получен. Проверьте учётные данные на сервере.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _webkassaBusy = false;
+        _webkassaStatusMessage = 'Не удалось проверить связь: $e';
+      });
+    }
   }
 
   void _copyWebkassaToken() {
