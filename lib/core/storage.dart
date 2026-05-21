@@ -32,6 +32,7 @@ class Storage {
   static const _keyPosSkipSslVerify = 'pos_skip_ssl_verify';
   static const _keyPosPaymentsJson = 'pos_payments_json';
   static const _keySelectedCashierId = 'selected_cashier_id';
+  static const _keyRememberedCustomerXin = 'remembered_customer_xin';
 
   final SharedPreferences _prefs;
 
@@ -305,6 +306,17 @@ class Storage {
       await _prefs.remove(_keySelectedCashierId);
     } else {
       await _prefs.setInt(_keySelectedCashierId, id);
+    }
+  }
+
+  String? get rememberedCustomerXin =>
+      _prefs.getString(_keyRememberedCustomerXin);
+
+  Future<void> setRememberedCustomerXin(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(_keyRememberedCustomerXin);
+    } else {
+      await _prefs.setString(_keyRememberedCustomerXin, value);
     }
   }
 

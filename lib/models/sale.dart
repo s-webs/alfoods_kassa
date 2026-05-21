@@ -25,6 +25,8 @@ class Sale {
   final String? ticketPrintUrl;
   final bool offlineMode;
   final String? webkassaCheckNumber;
+  final String? externalCheckNumber;
+  final String? customerXin;
   final String? paymentMethod;
   final SalePosTransaction? posTransaction;
   final List<Sale> returnSales;
@@ -49,6 +51,8 @@ class Sale {
     this.ticketPrintUrl,
     this.offlineMode = false,
     this.webkassaCheckNumber,
+    this.externalCheckNumber,
+    this.customerXin,
     this.paymentMethod,
     this.posTransaction,
     this.returnSales = const [],
@@ -118,6 +122,8 @@ class Sale {
       ticketPrintUrl: json['ticket_print_url']?.toString(),
       offlineMode: json['offline_mode'] == true,
       webkassaCheckNumber: json['webkassa_check_number']?.toString(),
+      externalCheckNumber: json['external_check_number']?.toString(),
+      customerXin: json['customer_xin']?.toString(),
       paymentMethod: json['payment_method']?.toString(),
       posTransaction: json['pos_transaction'] is Map<String, dynamic>
           ? SalePosTransaction.fromJson(

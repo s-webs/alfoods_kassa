@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/theme.dart';
 import '../core/storage.dart';
@@ -29,7 +30,10 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  int _tabIndex = 0;
   List<String> _printers = [];
   String? _selectedPrinterName;
   String _printMode = 'raw';
@@ -70,6 +74,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(
+      length: 4,
+      vsync: this,
+      animationDuration: Duration.zero,
+    );
     _kaspiPosService = KaspiPosService(widget.storage);
     _cashierResolver = CashierResolverService(widget.storage);
     _selectedPrinterName = widget.storage.receiptPrinterName;
@@ -116,30 +125,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _checkWebkassaConnection() async {
+  Future<void> _refreshWebkassaToken() async {
     setState(() {
       _webkassaBusy = true;
       _webkassaStatusMessage = null;
     });
     try {
-      await widget.apiService.refreshWebkassaSession();
-      await _cashierResolver.refreshCashierId(widget.apiService);
-      await _loadWebkassaInfo();
+      final data = await widget.apiService.refreshWebkassaSession();
       if (!mounted) return;
       setState(() {
-        _webkassaStatusMessage = 'Связь с WebKassa проверена.';
+        _webkassaHealth = data;
+        _webkassaBusy = false;
+        _webkassaStatusMessage = data['message']?.toString() ??
+            'Токен WebKassa обновлён.';
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _webkassaBusy = false;
-        _webkassaStatusMessage = 'Ошибка: $e';
+        _webkassaStatusMessage = 'Не удалось обновить токен: $e';
       });
     }
   }
 
+  Future<void> _checkWebkassaConnection() async {
+    await _refreshWebkassaToken();
+    if (!mounted) return;
+    try {
+      await _cashierResolver.refreshCashierId(widget.apiService);
+      await _loadWebkassaInfo();
+    } catch (_) {}
+  }
+
+  void _copyWebkassaToken() {
+    final token = _webkassaHealth?['token']?.toString();
+    if (token == null || token.isEmpty) {
+      showToast(context, 'Токен отсутствует');
+      return;
+    }
+    Clipboard.setData(ClipboardData(text: token));
+    showToast(context, 'Токен скопирован');
+  }
+
   @override
   void dispose() {
+    _tabController.dispose();
     _entrepreneurNameController.dispose();
     _entrepreneurBinController.dispose();
     _entrepreneurManagerController.dispose();
@@ -430,28 +460,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _settingsTabScroll(Widget child) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
+      child: child,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          child: Text(
             'Настройки',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
           ),
-          const SizedBox(height: 24),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Печать чеков',
+        ),
+        Material(
+          color: Colors.white,
+          child: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            labelColor: AppColors.primary,
+            unselectedLabelColor: AppColors.muted,
+            indicatorColor: AppColors.primary,
+            onTap: (index) => setState(() => _tabIndex = index),
+            tabs: const [
+              Tab(text: 'Печать'),
+              Tab(text: 'Интеграции'),
+              Tab(text: 'Общие'),
+              Tab(text: 'Этикетки'),
+            ],
+          ),
+        ),
+        Expanded(
+          child: IndexedStack(
+            index: _tabIndex,
+            sizing: StackFit.expand,
+            children: [
+              _settingsTabScroll(_buildPrintTab()),
+              _settingsTabScroll(_buildIntegrationsTab()),
+              _settingsTabScroll(_buildGeneralTab()),
+              _settingsTabScroll(_buildLabelsTab()),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPrintTab() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Печать чеков',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 12),
@@ -611,19 +682,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ' ',
                       style: TextStyle(color: AppColors.muted, fontSize: 13),
                     ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'WebKassa',
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIntegrationsTab() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'WebKassa',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
@@ -634,11 +710,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 12),
                   if (_webkassaHealth != null) ...[
                     Text(
-                      'Сервер: configured=${_webkassaHealth!['configured']}, '
-                      'token=${_webkassaHealth!['token_present']}, '
-                      'env=${_webkassaHealth!['environment'] ?? '—'}',
+                      'Окружение: ${_webkassaHealth!['environment'] ?? '—'}, '
+                      'настроено: ${_webkassaHealth!['configured'] == true ? 'да' : 'нет'}',
                       style: TextStyle(color: AppColors.muted, fontSize: 13),
                     ),
+                    if (_webkassaHealth!['token_expires_at'] != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Токен действует до: ${_webkassaHealth!['token_expires_at']}',
+                          style: TextStyle(color: AppColors.muted, fontSize: 13),
+                        ),
+                      ),
+                    if (_webkassaHealth!['token'] != null &&
+                        (_webkassaHealth!['token'] as String).isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Токен сессии WebKassa',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.muted.withValues(alpha: 0.4)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: SelectableText(
+                          _webkassaHealth!['token'] as String,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: _copyWebkassaToken,
+                          icon: const Icon(Icons.copy, size: 18),
+                          label: const Text('Копировать токен'),
+                        ),
+                      ),
+                    ] else
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Токен не в кэше — нажмите «Обновить токен».',
+                          style: TextStyle(color: AppColors.muted, fontSize: 13),
+                        ),
+                      ),
                     const SizedBox(height: 8),
                   ],
                   if (widget.storage.selectedCashierId != null)
@@ -673,7 +796,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       OutlinedButton(
                         onPressed: _webkassaBusy ? null : _loadWebkassaInfo,
-                        child: const Text('Обновить'),
+                        child: const Text('Статус'),
+                      ),
+                      OutlinedButton(
+                        onPressed: _webkassaBusy ? null : _refreshWebkassaToken,
+                        child: const Text('Обновить токен'),
                       ),
                       FilledButton(
                         onPressed:
@@ -811,15 +938,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Данные предпринимателя',
+      ],
+    );
+  }
+
+  Widget _buildGeneralTab() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Данные предпринимателя',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 12),
@@ -866,23 +997,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onFieldSubmitted: (_) => _saveEntrepreneur(),
                   ),
                   const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: _saveEntrepreneur,
-                    child: const Text('Сохранить'),
-                  ),
-                ],
-              ),
+            FilledButton(
+              onPressed: _saveEntrepreneur,
+              child: const Text('Сохранить'),
             ),
-          ),
-          const SizedBox(height: 24),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Этикетки и ценники',
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLabelsTab() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Этикетки и ценники',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 16),
@@ -1174,11 +1307,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 8),
                     ],
                   ),
-                ],
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -34,6 +35,11 @@ class SaleDetailInfoSection extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _row('Внутренний №', '#${sale.id}'),
+            if (sale.customerXin != null && sale.customerXin!.isNotEmpty)
+              _row('ИИН/БИН покупателя', sale.customerXin!),
+            if (sale.externalCheckNumber != null &&
+                sale.externalCheckNumber!.isNotEmpty)
+              _copyableRow('ExternalCheckNumber', sale.externalCheckNumber!),
             if (sale.webkassaCheckNumber != null &&
                 sale.webkassaCheckNumber!.isNotEmpty)
               _row('Чек WebKassa', sale.webkassaCheckNumber!),
@@ -117,6 +123,42 @@ class SaleDetailInfoSection extends StatelessWidget {
               value,
               style: const TextStyle(fontWeight: FontWeight.w500),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _copyableRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: TextStyle(color: AppColors.muted, fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+                fontFamily: 'monospace',
+                fontSize: 12,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy, size: 18),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: value));
+            },
           ),
         ],
       ),

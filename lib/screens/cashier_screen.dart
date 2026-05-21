@@ -27,7 +27,9 @@ import '../utils/time_util.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
 import '../widgets/credit_sale_dialog.dart';
+import '../widgets/customer_xin_dialog.dart';
 import '../widgets/fiscal_receipt_dialog.dart';
+import '../utils/webkassa_error_display.dart';
 import '../widgets/kaspi_pos_payment_dialog.dart';
 import '../widgets/pos_payment_method_dialog.dart';
 
@@ -151,11 +153,19 @@ class _CashierScreenState extends State<CashierScreen> {
     final shift = _currentOpenShift;
     if (shift == null) return;
 
+    final cashierId = _resolvedCashierId;
+    if (cashierId == null) {
+      setState(() => _error = 'Кассир не определён. Перезайдите в приложение.');
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Закрыть смену?'),
-        content: const Text('Вы уверены, что хотите закрыть текущую смену?'),
+        content: const Text(
+          'Будет сформирован Z-отчёт в WebKassa и закрыта смена в системе. Продолжить?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -176,8 +186,21 @@ class _CashierScreenState extends State<CashierScreen> {
       _error = null;
     });
     try {
-      await widget.apiService.closeShift(shift.id);
+      await widget.apiService.closeShift(shift.id, cashierId: cashierId);
       await _loadShifts();
+      if (mounted) {
+        setState(() => _isClosingShift = false);
+      }
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = formatWebkassaError(e);
+        _isClosingShift = false;
+      });
+      final hint = webkassaErrorHint(e.webkassaCode);
+      if (hint != null) {
+        showToast(context, hint);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -965,6 +988,17 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
+  Future<void> _showWebkassaCheckoutError(ApiWebkassaException e) async {
+    setState(() => _error = formatWebkassaError(e));
+    final hint = webkassaErrorHint(e.webkassaCode);
+    if (hint != null) {
+      showToast(context, hint);
+    }
+    if (e.fiscal != null) {
+      await FiscalReceiptDialog.show(context, fiscal: e.fiscal!);
+    }
+  }
+
   Future<void> _openPosPayment() async {
     if (!_validateCheckoutPreconditions(requireCashier: true)) {
       return;
@@ -979,14 +1013,32 @@ class _CashierScreenState extends State<CashierScreen> {
       return;
     }
 
+    final xinResult = await CustomerXinDialog.show(
+      context,
+      initialValue: widget.storage.rememberedCustomerXin,
+    );
+    if (xinResult == null || !mounted) {
+      _refocusBarcodeField();
+      return;
+    }
+
+    if (xinResult.rememberForShift && xinResult.customerXin != null) {
+      await widget.storage.setRememberedCustomerXin(xinResult.customerXin);
+    } else if (xinResult.rememberForShift) {
+      await widget.storage.setRememberedCustomerXin(null);
+    }
+
     if (method.requiresKaspiTerminal) {
-      await _checkoutWithKaspi(method);
+      await _checkoutWithKaspi(method, customerXin: xinResult.customerXin);
     } else {
-      await _checkoutOfdDirect(method);
+      await _checkoutOfdDirect(method, customerXin: xinResult.customerXin);
     }
   }
 
-  Future<void> _checkoutOfdDirect(SalePaymentMethod method) async {
+  Future<void> _checkoutOfdDirect(
+    SalePaymentMethod method, {
+    String? customerXin,
+  }) async {
     final state = CashierStateScope.of(context);
     final shift = _currentOpenShift!;
 
@@ -1001,6 +1053,7 @@ class _CashierScreenState extends State<CashierScreen> {
         shiftId: shift.id,
         items: state.cart.map((c) => c.toJson()).toList(),
         paymentMethod: method,
+        customerXin: customerXin,
         draftSaleId: state.lastSavedSaleId,
       );
       if (!mounted) return;
@@ -1010,13 +1063,8 @@ class _CashierScreenState extends State<CashierScreen> {
       _refocusBarcodeField();
     } on ApiWebkassaException catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = e.message;
-        _isPosPaying = false;
-      });
-      if (e.fiscal != null) {
-        await FiscalReceiptDialog.show(context, fiscal: e.fiscal!);
-      }
+      await _showWebkassaCheckoutError(e);
+      setState(() => _isPosPaying = false);
       _refocusBarcodeField();
     } catch (e) {
       if (!mounted) return;
@@ -1028,7 +1076,10 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
-  Future<void> _checkoutWithKaspi(SalePaymentMethod method) async {
+  Future<void> _checkoutWithKaspi(
+    SalePaymentMethod method, {
+    String? customerXin,
+  }) async {
     final state = CashierStateScope.of(context);
     final shift = _currentOpenShift!;
 
@@ -1100,6 +1151,7 @@ class _CashierScreenState extends State<CashierScreen> {
         shiftId: shift.id,
         items: state.cart.map((c) => c.toJson()).toList(),
         paymentMethod: method,
+        customerXin: customerXin,
         draftSaleId: state.lastSavedSaleId,
         posTransaction: PosTransactionDto(
           method: terminalMethod,
@@ -1136,8 +1188,11 @@ class _CashierScreenState extends State<CashierScreen> {
       setState(() => _isPosPaying = false);
       showToast(
         context,
-        'Оплата на терминале прошла, чек WebKassa не пробит: ${e.message}',
+        'Оплата на терминале прошла, чек WebKassa не пробит: ${formatWebkassaError(e)}',
       );
+      if (e.fiscal != null) {
+        await FiscalReceiptDialog.show(context, fiscal: e.fiscal!);
+      }
       _refocusBarcodeField();
     } catch (e) {
       if (!mounted) return;

@@ -16,6 +16,9 @@ import '../models/sale.dart';
 import '../models/sale_item.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../services/api_webkassa_exception.dart';
+import '../utils/webkassa_error_display.dart';
+import '../widgets/fiscal_receipt_dialog.dart';
 import '../services/webkassa_receipt_print_service.dart';
 import '../services/kaspi_pos_service.dart';
 import '../services/pos_payment_store.dart';
@@ -674,12 +677,20 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
     );
     if (confirm != true || !mounted) return;
 
+    setState(() {
+      _isReturning = true;
+      _error = null;
+    });
+
     if (posRecord != null && fullReturn) {
       if (!widget.storage.isPosConfigured) {
-        showToast(
-          context,
-          'Настройте Kaspi POS в настройках для возврата на терминале',
-        );
+        if (mounted) {
+          setState(() => _isReturning = false);
+          showToast(
+            context,
+            'Настройте Kaspi POS в настройках для возврата на терминале',
+          );
+        }
         return;
       }
       try {
@@ -705,19 +716,27 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
         if (!mounted) return;
         if (result == null || result.status != 'success') {
           final msg = result?.message ?? 'Возврат на терминале не выполнен';
-          showToast(context, msg);
+          if (mounted) {
+            setState(() => _isReturning = false);
+            showToast(context, msg);
+          }
           return;
         }
       } on KaspiPosException catch (e) {
-        if (mounted) showToast(context, e.message);
+        if (mounted) {
+          setState(() => _isReturning = false);
+          showToast(context, e.message);
+        }
         return;
       } catch (e) {
-        if (mounted) showToast(context, 'Ошибка POS: $e');
+        if (mounted) {
+          setState(() => _isReturning = false);
+          showToast(context, 'Ошибка POS: $e');
+        }
         return;
       }
     }
 
-    setState(() => _isReturning = true);
     try {
       final result = await widget.apiService.returnSale(
         widget.saleId,
@@ -746,12 +765,71 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
       }
 
       if (mounted) context.pop(true);
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = formatWebkassaError(e));
+      final hint = webkassaErrorHint(e.webkassaCode);
+      if (hint != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
+      }
+      if (e.fiscal != null) {
+        await FiscalReceiptDialog.show(context, fiscal: e.fiscal!);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Не удалось оформить возврат');
     } finally {
       if (mounted) setState(() => _isReturning = false);
     }
+  }
+
+  Widget _buildReturningOverlay() {
+    final ofd = _isOfdSale;
+    return Positioned.fill(
+      child: AbsorbPointer(
+        child: ColoredBox(
+          color: Colors.black.withValues(alpha: 0.45),
+          child: Center(
+            child: Card(
+              margin: const EdgeInsets.all(32),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 28,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: CircularProgressIndicator(strokeWidth: 3),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      ofd ? 'Оформление возврата ОФД...' : 'Оформление возврата...',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      ofd
+                          ? 'Фискализация в WebKassa. Дождитесь завершения.'
+                          : 'Дождитесь завершения операции',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.muted,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _printReceipt() async {
@@ -899,6 +977,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
     final isOfdSale = _isOfdSale;
     final canEditOrder = !isReturned && !isReturnRecord && !isOfdSale;
     final canReturn = sale.canAcceptReturns && !_isReturning;
+    final isScreenBusy = _isReturning || _isSaving;
     final hasMenuActions =
         (!isReturned && _items.isNotEmpty) || canReturn || canEditOrder;
     return Scaffold(
@@ -921,37 +1000,38 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+          onPressed: isScreenBusy ? null : () => context.pop(),
         ),
         actions: [
           if (canEditOrder)
             IconButton(
               icon: const Icon(Icons.add),
               tooltip: 'Добавить позицию',
-              onPressed: _isSaving ? null : _addItemFromCatalog,
+              onPressed: isScreenBusy ? null : _addItemFromCatalog,
             ),
           IconButton(
             icon: const Icon(Icons.picture_as_pdf),
             tooltip: isOfdSale ? 'Чек WebKassa (PDF)' : 'Сохранить в PDF',
-            onPressed: _items.isEmpty ? null : _saveReceiptPdf,
+            onPressed: _items.isEmpty || isScreenBusy ? null : _saveReceiptPdf,
           ),
           if (canEditOrder)
             IconButton(
               icon: const Icon(Icons.save),
               tooltip: 'Сохранить',
-              onPressed: _isSaving ? null : _save,
+              onPressed: isScreenBusy ? null : _save,
             ),
           if (Platform.isWindows || isOfdSale)
             IconButton(
               icon: const Icon(Icons.print),
               tooltip: isOfdSale ? 'Печать чека WebKassa' : 'Печать чека',
-              onPressed: _items.isEmpty ? null : _printReceipt,
+              onPressed: _items.isEmpty || isScreenBusy ? null : _printReceipt,
             ),
           if (hasMenuActions)
             PopupMenuButton<String>(
               tooltip: 'Действия',
+              enabled: !isScreenBusy,
               onSelected: (value) async {
-                if (_isSaving) return;
+                if (isScreenBusy) return;
                 switch (value) {
                   case 'invoice':
                     showInvoiceDialog(
@@ -990,7 +1070,9 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
             ),
         ],
       ),
-      body: Column(
+      body: Stack(
+        children: [
+          Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_error != null)
@@ -1017,16 +1099,19 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
             ),
           Material(
             color: Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: AppColors.primary,
-              unselectedLabelColor: AppColors.muted,
-              indicatorColor: AppColors.primary,
-              onTap: (index) => setState(() => _tabIndex = index),
-              tabs: const [
-                Tab(text: 'Детали продажи'),
-                Tab(text: 'Возврат'),
-              ],
+            child: IgnorePointer(
+              ignoring: _isReturning,
+              child: TabBar(
+                controller: _tabController,
+                labelColor: AppColors.primary,
+                unselectedLabelColor: AppColors.muted,
+                indicatorColor: AppColors.primary,
+                onTap: (index) => setState(() => _tabIndex = index),
+                tabs: const [
+                  Tab(text: 'Детали продажи'),
+                  Tab(text: 'Возврат'),
+                ],
+              ),
             ),
           ),
           Expanded(
@@ -1048,6 +1133,9 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
               ],
             ),
           ),
+        ],
+      ),
+          if (_isReturning) _buildReturningOverlay(),
         ],
       ),
     );
@@ -1630,7 +1718,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
                       children: [
                         IconButton(
                           icon: const Icon(Icons.remove_circle_outline),
-                          onPressed: draft > 0
+                          onPressed: !_isReturning && draft > 0
                               ? () => setState(() {
                                     _returnDraftQty[index] =
                                         (draft - step).clamp(0, remaining);
@@ -1642,7 +1730,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
                         )),
                         IconButton(
                           icon: const Icon(Icons.add_circle_outline),
-                          onPressed: draft < remaining
+                          onPressed: !_isReturning && draft < remaining
                               ? () => setState(() {
                                     _returnDraftQty[index] =
                                         (draft + step).clamp(0, remaining);
@@ -1663,7 +1751,9 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
                           ? null
                           : () => _returnSale(fullReturn: false),
                       icon: const Icon(Icons.undo),
-                      label: const Text('Частичный возврат'),
+                      label: Text(
+                        _isReturning ? 'Оформление...' : 'Частичный возврат',
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1672,17 +1762,10 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
                       onPressed: _isReturning
                           ? null
                           : () => _returnSale(fullReturn: true),
-                      icon: _isReturning
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.keyboard_return),
-                      label: const Text('Полный возврат'),
+                      icon: const Icon(Icons.keyboard_return),
+                      label: Text(
+                        _isReturning ? 'Оформление...' : 'Полный возврат',
+                      ),
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.accent,
                       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/fiscal_receipt.dart';
@@ -67,6 +68,13 @@ class FiscalReceiptDialog extends StatelessWidget {
               ),
             if (fiscal.checkNumber != null && fiscal.checkNumber!.isNotEmpty)
               Text('Номер чека: ${fiscal.checkNumber}'),
+            if (fiscal.externalCheckNumber != null &&
+                fiscal.externalCheckNumber!.isNotEmpty)
+              _copyableRow(
+                context,
+                'ExternalCheckNumber',
+                fiscal.externalCheckNumber!,
+              ),
             if (fiscal.shiftNumber != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -90,6 +98,43 @@ class FiscalReceiptDialog extends StatelessWidget {
           child: const Text('Открыть чек'),
         ),
       ],
+    );
+  }
+
+  static Widget _copyableRow(
+    BuildContext context,
+    String label,
+    String value,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 12)),
+                SelectableText(
+                  value,
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy, size: 18),
+            tooltip: 'Копировать',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: value));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('$label скопирован')),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }

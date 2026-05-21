@@ -178,16 +178,21 @@ class ApiService {
     return Shift.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<Shift> closeShift(int shiftId) async {
-    // API ожидает `closed_at` в теле. В ISO с `Z` сервер/БД часто показывают «сырой» UTC;
-    // для бизнес-времени UTC+5 шлём тот же инстант с явным смещением +05:00.
-    final response = await _apiClient.dio.patch(
-      'api/shifts/$shiftId',
-      data: <String, dynamic>{
-        'closed_at': TimeUtil.isoUtcPlus5FromUtc(TimeUtil.syncedUtcNow()),
-      },
-    );
-    return Shift.fromJson(response.data as Map<String, dynamic>);
+  Future<Shift> closeShift(int shiftId, {required int cashierId}) async {
+    try {
+      final response = await _apiClient.dio.post(
+        'api/shifts/$shiftId/close',
+        data: <String, dynamic>{'cashier_id': cashierId},
+      );
+      final data = response.data as Map<String, dynamic>;
+      final shiftJson = data['shift'] as Map<String, dynamic>? ?? data;
+      return Shift.fromJson(shiftJson);
+    } on DioException catch (e) {
+      if (e.response != null) {
+        throw ApiWebkassaException.fromDio(e);
+      }
+      rethrow;
+    }
   }
 
   Future<List<Cashier>> getCashiers() async {
@@ -844,8 +849,31 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getWebkassaHealth() async {
-    final response = await _apiClient.dio.get('api/webkassa/health');
+  /// Лёгкая проверка доступности API (требует авторизации).
+  Future<void> pingBackend({
+    Duration? receiveTimeout,
+    Duration? sendTimeout,
+  }) async {
+    await _apiClient.dio.get(
+      'api/tasks/today',
+      options: Options(
+        receiveTimeout: receiveTimeout,
+        sendTimeout: sendTimeout,
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>> getWebkassaHealth({
+    Duration? receiveTimeout,
+    Duration? sendTimeout,
+  }) async {
+    final response = await _apiClient.dio.get(
+      'api/webkassa/health',
+      options: Options(
+        receiveTimeout: receiveTimeout,
+        sendTimeout: sendTimeout,
+      ),
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -857,8 +885,9 @@ class ApiService {
         .toList();
   }
 
-  Future<void> refreshWebkassaSession() async {
-    await _apiClient.dio.post('api/webkassa/session/refresh');
+  Future<Map<String, dynamic>> refreshWebkassaSession() async {
+    final response = await _apiClient.dio.post('api/webkassa/session/refresh');
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<Sale> updateSale(int id, {
@@ -908,13 +937,20 @@ class ApiService {
     if (items != null && items.isNotEmpty) {
       data['items'] = items;
     }
-    final response = await _apiClient.dio.post(
-      'api/sales/$id/return',
-      data: data.isEmpty ? null : data,
-    );
-    return SaleReturnResult.fromJson(
-      Map<String, dynamic>.from(response.data as Map),
-    );
+    try {
+      final response = await _apiClient.dio.post(
+        'api/sales/$id/return',
+        data: data.isEmpty ? null : data,
+      );
+      return SaleReturnResult.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
+    } on DioException catch (e) {
+      if (e.response != null) {
+        throw ApiWebkassaException.fromDio(e);
+      }
+      rethrow;
+    }
   }
 
   // Counterparties
@@ -1321,12 +1357,16 @@ class NktSearchResult {
     required this.variantsCount,
     required this.cached,
     this.barcode,
+    this.barcodesTried = const [],
+    this.matchedBarcode,
   });
 
   final List<NktVariant> variants;
   final int variantsCount;
   final bool cached;
   final String? barcode;
+  final List<String> barcodesTried;
+  final String? matchedBarcode;
 
   factory NktSearchResult.fromJson(Map<String, dynamic> json) {
     final raw = json['variants'] as List<dynamic>? ?? const [];
@@ -1334,11 +1374,15 @@ class NktSearchResult {
         .whereType<Map<String, dynamic>>()
         .map(NktVariant.fromJson)
         .toList();
+    final triedRaw = json['barcodes_tried'] as List<dynamic>? ?? const [];
+    final barcodesTried = triedRaw.map((e) => e.toString()).toList();
     return NktSearchResult(
       variants: variants,
       variantsCount: (json['variants_count'] as num?)?.toInt() ?? variants.length,
       cached: json['cached'] == true,
       barcode: json['barcode']?.toString(),
+      barcodesTried: barcodesTried,
+      matchedBarcode: json['matched_barcode']?.toString(),
     );
   }
 }
