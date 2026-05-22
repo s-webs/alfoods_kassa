@@ -33,17 +33,16 @@ class CartItem {
     String? unit,
     double? stock,
     int? orderIndex,
-  }) =>
-      CartItem(
-        productId: productId ?? this.productId,
-        setId: setId ?? this.setId,
-        name: name ?? this.name,
-        price: price ?? this.price,
-        quantity: quantity ?? this.quantity,
-        unit: unit ?? this.unit,
-        stock: stock ?? this.stock,
-        orderIndex: orderIndex ?? this.orderIndex,
-      );
+  }) => CartItem(
+    productId: productId ?? this.productId,
+    setId: setId ?? this.setId,
+    name: name ?? this.name,
+    price: price ?? this.price,
+    quantity: quantity ?? this.quantity,
+    unit: unit ?? this.unit,
+    stock: stock ?? this.stock,
+    orderIndex: orderIndex ?? this.orderIndex,
+  );
 
   double get total => price * quantity;
 
