@@ -32,6 +32,10 @@ class Product {
   final DateTime? nktModifiedAt;
   final DateTime? nktCheckedAt;
   final bool? nktNotFound;
+  final int? nktRequestId;
+  final String? nktRequestStatus;
+  final String? nktRequestStatusLabel;
+  final DateTime? nktRequestUpdatedAt;
 
   const Product({
     required this.id,
@@ -65,10 +69,20 @@ class Product {
     this.nktModifiedAt,
     this.nktCheckedAt,
     this.nktNotFound,
+    this.nktRequestId,
+    this.nktRequestStatus,
+    this.nktRequestStatusLabel,
+    this.nktRequestUpdatedAt,
   });
 
   bool get isLinkedToNkt => nktNtin != null && nktNtin!.isNotEmpty;
   bool get isNktNotFound => nktNotFound == true && !isLinkedToNkt;
+  bool get hasNktRequest => nktRequestId != null && nktRequestId! > 0;
+
+  String get nktRequestStatusDisplay =>
+      (nktRequestStatusLabel != null && nktRequestStatusLabel!.isNotEmpty)
+          ? nktRequestStatusLabel!
+          : (nktRequestStatus ?? '—');
 
   static double _parseDouble(dynamic v) {
     if (v == null) return 0;
@@ -146,6 +160,10 @@ class Product {
       nktModifiedAt: _parseDate(json['nkt_modified_at']),
       nktCheckedAt: _parseDate(json['nkt_checked_at']),
       nktNotFound: _parseBool(json['nkt_not_found']),
+      nktRequestId: json['nkt_request_id'] as int?,
+      nktRequestStatus: json['nkt_request_status'] as String?,
+      nktRequestStatusLabel: json['nkt_request_status_label'] as String?,
+      nktRequestUpdatedAt: _parseDate(json['nkt_request_updated_at']),
     );
   }
 

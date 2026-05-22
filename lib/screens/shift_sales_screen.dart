@@ -180,7 +180,7 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
 
       final pdfBytes = await ShiftSalesReportPdfService.build(
         shiftId: widget.shiftId,
-        shiftPeriod: shiftPeriod,
+        periodLabel: shiftPeriod,
         filterLabel: filter.label,
         sales: sales,
       );

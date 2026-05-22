@@ -11,7 +11,7 @@ import 'screens/counterparties_screen.dart';
 import 'screens/counterparty_form_screen.dart';
 import 'screens/debtors_screen.dart';
 import 'screens/login_screen.dart';
-import 'screens/nkt_product_details_screen.dart';
+import 'screens/nkt_product_details_screen.dart' show NktDetailsTab, NktProductDetailsScreen;
 import 'screens/nkt_sync_screen.dart';
 import 'screens/order_detail_screen.dart';
 import 'screens/orders_screen.dart';
@@ -282,7 +282,10 @@ class App extends StatelessWidget {
             GoRoute(
               path: '/sales',
               pageBuilder: (context, state) => NoTransitionPage(
-                child: ShiftsListScreen(apiService: apiService),
+                child: ShiftsListScreen(
+                  storage: storage,
+                  apiService: apiService,
+                ),
               ),
             ),
             GoRoute(
@@ -301,10 +304,17 @@ class App extends StatelessWidget {
               path: '/nkt/:id',
               pageBuilder: (context, state) {
                 final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+                final tabParam = state.uri.queryParameters['tab'];
+                final initialTab = switch (tabParam) {
+                  'nkt' => NktDetailsTab.nkt,
+                  'request' => NktDetailsTab.request,
+                  _ => NktDetailsTab.product,
+                };
                 return NoTransitionPage(
                   child: NktProductDetailsScreen(
                     apiService: apiService,
                     productId: id,
+                    initialTab: initialTab,
                   ),
                 );
               },

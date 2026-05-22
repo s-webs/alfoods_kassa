@@ -11,24 +11,30 @@ import '../models/product.dart';
 import '../services/api_service.dart';
 import '../utils/product_search.dart';
 import '../utils/toast.dart';
+import '../widgets/nkt_product_request_form.dart';
 import '../widgets/nkt_variants_ui.dart';
+
+enum NktDetailsTab { product, nkt, request }
 
 class NktProductDetailsScreen extends StatefulWidget {
   const NktProductDetailsScreen({
     super.key,
     required this.apiService,
     required this.productId,
+    this.initialTab = NktDetailsTab.product,
   });
 
   final ApiService apiService;
   final int productId;
+  final NktDetailsTab initialTab;
 
   @override
   State<NktProductDetailsScreen> createState() =>
       _NktProductDetailsScreenState();
 }
 
-class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
+class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
+    with SingleTickerProviderStateMixin {
   Product? _product;
   bool _isLoading = true;
   bool _isSaving = false;
@@ -51,15 +57,27 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
   bool _nktSearching = false;
   bool _nktLinking = false;
   String? _pickedNktNtin;
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    final initialIndex = switch (widget.initialTab) {
+      NktDetailsTab.nkt => 1,
+      NktDetailsTab.request => 2,
+      NktDetailsTab.product => 0,
+    };
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: initialIndex,
+    );
     _load();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _nameController.dispose();
     _slugController.dispose();
     _newNameController.dispose();
@@ -391,17 +409,18 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
                 icon: const Icon(PhosphorIconsRegular.pencilSimple),
                 onPressed: _openFullProductForm,
               ),
-              IconButton(
-                tooltip: _isSaving ? 'Сохраняем...' : 'Сохранить',
-                onPressed: _isSaving || !_dirty ? null : _save,
-                icon: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(PhosphorIconsRegular.floppyDisk),
-              ),
+              if (_tabController.index == 0)
+                IconButton(
+                  tooltip: _isSaving ? 'Сохраняем...' : 'Сохранить',
+                  onPressed: _isSaving || !_dirty ? null : _save,
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(PhosphorIconsRegular.floppyDisk),
+                ),
               IconButton(
                 tooltip: 'Обновить',
                 icon: const Icon(Icons.refresh),
@@ -409,9 +428,23 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
               ),
             ],
           ],
+          bottom: _product == null
+              ? null
+              : TabBar(
+                  controller: _tabController,
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.white70,
+                  indicatorColor: Colors.white,
+                  onTap: (_) => setState(() {}),
+                  tabs: const [
+                    Tab(text: 'Товар'),
+                    Tab(text: 'НКТ'),
+                    Tab(text: 'Заявка НКТ'),
+                  ],
+                ),
         ),
         body: _buildBody(),
-        bottomNavigationBar: _product == null
+        bottomNavigationBar: _product == null || _tabController.index != 0
             ? null
             : SafeArea(
                 child: Padding(
@@ -452,6 +485,10 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
     );
   }
 
+  void _onProductUpdatedFromRequest(Product updated) {
+    setState(() => _product = updated);
+  }
+
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -476,9 +513,18 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
     }
 
     final p = _product!;
-    final hasNktData =
-        p.isLinkedToNkt || p.isNktNotFound || p.nktCheckedAt != null;
 
+    return TabBarView(
+      controller: _tabController,
+      children: [
+        _buildProductTab(p),
+        _buildNktTab(p),
+        _buildRequestTab(p),
+      ],
+    );
+  }
+
+  Widget _buildProductTab(Product p) {
     return Form(
       key: _formKey,
       onChanged: () {
@@ -633,32 +679,51 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
                 ],
               ),
             ),
-          if (hasNktData)
-            _SectionCard(
-              title: 'НКТ — статус',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _NktStatusBadge(product: p),
-                  if (p.nktCheckedAt != null) ...[
-                    const SizedBox(height: 8),
-                    _ReadOnlyKV('Проверено', _fmtDateTime(p.nktCheckedAt!)),
-                  ],
-                  if (p.nktModifiedAt != null)
-                    _ReadOnlyKV(
-                      'Изменено в НКТ',
-                      _fmtDateTime(p.nktModifiedAt!),
-                    ),
-                ],
-              ),
-            ),
-          _SectionCard(
-            title: _nktSearchResult != null
-                ? 'НКТ — варианты по штрихкоду (${_nktSearchResult!.variants.length})'
-                : 'НКТ — варианты по штрихкоду',
-            child: _buildNktVariantsBlock(p),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: _openFullProductForm,
+            icon: const Icon(Icons.edit_note),
+            label: const Text('Открыть полную форму товара'),
           ),
-          if (p.isLinkedToNkt) ...[
+          const SizedBox(height: 80),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNktTab(Product p) {
+    final hasNktData =
+        p.isLinkedToNkt || p.isNktNotFound || p.nktCheckedAt != null;
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (hasNktData)
+          _SectionCard(
+            title: 'НКТ — статус',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _NktStatusBadge(product: p),
+                if (p.nktCheckedAt != null) ...[
+                  const SizedBox(height: 8),
+                  _ReadOnlyKV('Проверено', _fmtDateTime(p.nktCheckedAt!)),
+                ],
+                if (p.nktModifiedAt != null)
+                  _ReadOnlyKV(
+                    'Изменено в НКТ',
+                    _fmtDateTime(p.nktModifiedAt!),
+                  ),
+              ],
+            ),
+          ),
+        _SectionCard(
+          title: _nktSearchResult != null
+              ? 'НКТ — варианты по штрихкоду (${_nktSearchResult!.variants.length})'
+              : 'НКТ — варианты по штрихкоду',
+          child: _buildNktVariantsBlock(p),
+        ),
+        if (p.isLinkedToNkt) ...[
             _SectionCard(
               title: 'НКТ — идентификация',
               child: Column(
@@ -738,15 +803,29 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen> {
                 ),
               ),
           ],
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: _openFullProductForm,
-            icon: const Icon(Icons.edit_note),
-            label: const Text('Открыть полную форму товара'),
+        if (p.nktRequestStatus == 'completed' && !p.isLinkedToNkt)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  'Заявка выполнена. Нажмите «Поиск» выше, чтобы привязать товар к NTIN в каталоге.',
+                  style: TextStyle(color: AppColors.muted, fontSize: 13),
+                ),
+              ),
+            ),
           ),
-          const SizedBox(height: 80),
-        ],
-      ),
+        const SizedBox(height: 80),
+      ],
+    );
+  }
+
+  Widget _buildRequestTab(Product p) {
+    return NktProductRequestForm(
+      api: widget.apiService,
+      product: p,
+      onProductUpdated: _onProductUpdatedFromRequest,
     );
   }
 

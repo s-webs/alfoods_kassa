@@ -11,8 +11,8 @@ import '../utils/time_util.dart';
 /// PDF-отчёт по продажам смены.
 class ShiftSalesReportPdfService {
   static Future<Uint8List> build({
-    required int shiftId,
-    required String shiftPeriod,
+    int? shiftId,
+    required String periodLabel,
     required String filterLabel,
     required List<Sale> sales,
   }) async {
@@ -36,14 +36,14 @@ class ShiftSalesReportPdfService {
         build: (context) => [
           pw.Center(
             child: pw.Text(
-              'Отчёт по смене №$shiftId',
+              shiftId != null ? 'Отчёт по смене №$shiftId' : 'Отчёт по продажам',
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
             ),
           ),
           pw.SizedBox(height: 6),
           pw.Center(
             child: pw.Text(
-              shiftPeriod,
+              periodLabel,
               style: const pw.TextStyle(fontSize: 11),
             ),
           ),

@@ -344,6 +344,100 @@ class ApiService {
   }
 
   // ---------------------------------------------------------------------------
+  // НКТ — заявки на добавление товара (Portal API через backend).
+  // ---------------------------------------------------------------------------
+
+  Future<List<NktRequestAttribute>> nktGetRequestAttributes() async {
+    final response =
+        await _apiClient.dio.get('api/nkt/products/requests/attributes');
+    final list = response.data as List<dynamic>? ?? const [];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(NktRequestAttribute.fromJson)
+        .toList();
+  }
+
+  Future<NktRequestPrefill> nktGetRequestPrefill(int productId) async {
+    final response = await _apiClient.dio.get(
+      'api/products/$productId/nkt/request-prefill',
+    );
+    return NktRequestPrefill.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<NktRequestFormData> nktGetRequestFormData(int productId) async {
+    final response = await _apiClient.dio.get(
+      'api/products/$productId/nkt/request-form-data',
+    );
+    return NktRequestFormData.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Product> nktCreateProductRequest(
+    int productId,
+    NktRequestPayload payload, {
+    bool submitToModeration = false,
+  }) async {
+    final data = payload.toJson();
+    if (submitToModeration) data['submit_to_moderation'] = true;
+
+    final response = await _apiClient.dio.post(
+      'api/products/$productId/nkt/requests',
+      data: data,
+    );
+    return _productFromNktResponse(response.data as Map<String, dynamic>);
+  }
+
+  Future<Product> nktUpdateProductRequest(
+    int productId,
+    NktRequestPayload payload,
+  ) async {
+    final response = await _apiClient.dio.put(
+      'api/products/$productId/nkt/requests',
+      data: payload.toJson(),
+    );
+    return _productFromNktResponse(response.data as Map<String, dynamic>);
+  }
+
+  Future<Product> nktSubmitRequestModeration(int productId) async {
+    final response = await _apiClient.dio.post(
+      'api/products/$productId/nkt/requests/moderation',
+    );
+    return _productFromNktResponse(response.data as Map<String, dynamic>);
+  }
+
+  Future<Product> nktPublishRequest(int productId) async {
+    final response = await _apiClient.dio.post(
+      'api/products/$productId/nkt/requests/publish',
+    );
+    return _productFromNktResponse(response.data as Map<String, dynamic>);
+  }
+
+  Future<Product> nktCancelRequest(int productId) async {
+    final response = await _apiClient.dio.post(
+      'api/products/$productId/nkt/requests/cancel',
+    );
+    return _productFromNktResponse(response.data as Map<String, dynamic>);
+  }
+
+  Future<Product> nktRefreshRequestStatus(int productId) async {
+    final response = await _apiClient.dio.post(
+      'api/products/$productId/nkt/requests/refresh-status',
+    );
+    return _productFromNktResponse(response.data as Map<String, dynamic>);
+  }
+
+  Future<Product> nktClearProductRequest(int productId) async {
+    final response = await _apiClient.dio.delete(
+      'api/products/$productId/nkt/requests',
+    );
+    return _productFromNktResponse(response.data as Map<String, dynamic>);
+  }
+
+  Product _productFromNktResponse(Map<String, dynamic> json) {
+    final productJson = json['product'] as Map<String, dynamic>? ?? json;
+    return Product.fromJson(productJson);
+  }
+
+  // ---------------------------------------------------------------------------
   // Waybill AI name→product mappings
   // Stored on the backend so they work across devices (mobile app, kassa, etc.)
   // ---------------------------------------------------------------------------
@@ -757,6 +851,7 @@ class ApiService {
     DateTime? dateFrom,
     DateTime? dateTo,
     int? shiftId,
+    String? paymentReport,
     int page = 1,
     int perPage = salesPerPage,
   }) async {
@@ -775,12 +870,37 @@ class ApiService {
       query['date_to'] = _formatDateParam(dateTo);
     }
     if (shiftId != null) query['shift_id'] = shiftId;
+    if (paymentReport != null && paymentReport.isNotEmpty) {
+      query['payment_report'] = paymentReport;
+    }
 
     final response = await _apiClient.dio.get(
       'api/sales/search',
       queryParameters: query,
     );
     return PaginatedSales.fromResponse(response.data);
+  }
+
+  Future<List<Sale>> getAllSalesForPeriod({
+    required DateTime dateFrom,
+    required DateTime dateTo,
+    required String paymentReport,
+  }) async {
+    final all = <Sale>[];
+    var page = 1;
+    while (true) {
+      final result = await searchSales(
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+        paymentReport: paymentReport,
+        page: page,
+        perPage: 100,
+      );
+      all.addAll(result.data);
+      if (page >= result.lastPage) break;
+      page++;
+    }
+    return all;
   }
 
   static String _formatDateParam(DateTime dt) =>
@@ -799,7 +919,9 @@ class ApiService {
     bool fiscalize = false,
     SalePaymentMethod? paymentMethod,
     List<Map<String, dynamic>>? payments,
+    List<Map<String, dynamic>>? paymentSplits,
     Map<String, dynamic>? posTransaction,
+    List<Map<String, dynamic>>? posTransactions,
     String? customerXin,
     String? externalCheckNumber,
     String? customerEmail,
@@ -836,7 +958,13 @@ class ApiService {
       data['payments'] = payments ?? [];
     }
 
-    if (posTransaction != null) {
+    if (paymentSplits != null && paymentSplits.isNotEmpty) {
+      data['payment_splits'] = paymentSplits;
+    }
+
+    if (posTransactions != null && posTransactions.isNotEmpty) {
+      data['pos_transactions'] = posTransactions;
+    } else if (posTransaction != null) {
       data['pos_transaction'] = posTransaction;
     }
 
@@ -1291,6 +1419,161 @@ class WaybillAnalyzeException implements Exception {
 }
 
 /// Один товар из ответа НКТ. На один штрихкод может приходить несколько таких.
+class NktRequestAttributeValue {
+  NktRequestAttributeValue({
+    required this.code,
+    this.value = '',
+    this.parentCode,
+    this.index,
+  });
+
+  final String code;
+  final String value;
+  final String? parentCode;
+  final int? index;
+
+  Map<String, dynamic> toJson() {
+    final map = <String, dynamic>{
+      'code': code,
+      'value': value,
+    };
+    if (parentCode != null && parentCode!.isNotEmpty) {
+      map['parent_code'] = parentCode;
+    }
+    if (index != null) map['index'] = index;
+    return map;
+  }
+
+  factory NktRequestAttributeValue.fromJson(Map<String, dynamic> json) {
+    return NktRequestAttributeValue(
+      code: json['code']?.toString() ?? '',
+      value: json['value']?.toString() ?? '',
+      parentCode: json['parent_code']?.toString(),
+      index: json['index'] as int?,
+    );
+  }
+}
+
+class NktRequestPayload {
+  NktRequestPayload({
+    required this.oktru,
+    required this.autoPublication,
+    required this.attributes,
+  });
+
+  final String oktru;
+  final bool autoPublication;
+  final List<NktRequestAttributeValue> attributes;
+
+  Map<String, dynamic> toJson() => {
+        'oktru': oktru,
+        'autoPublication': autoPublication,
+        'attributes': attributes.map((e) => e.toJson()).toList(),
+      };
+}
+
+class NktRequestPrefill {
+  NktRequestPrefill({
+    required this.oktru,
+    required this.autoPublication,
+    required this.attributes,
+  });
+
+  final String oktru;
+  final bool autoPublication;
+  final List<NktRequestAttributeValue> attributes;
+
+  factory NktRequestPrefill.fromJson(Map<String, dynamic> json) {
+    final raw = json['attributes'] as List<dynamic>? ?? const [];
+    return NktRequestPrefill(
+      oktru: json['oktru']?.toString() ?? '',
+      autoPublication: json['autoPublication'] == true,
+      attributes: raw
+          .whereType<Map<String, dynamic>>()
+          .map(NktRequestAttributeValue.fromJson)
+          .toList(),
+    );
+  }
+}
+
+class NktRequestFormData {
+  NktRequestFormData({
+    required this.oktru,
+    required this.autoPublication,
+    required this.attributes,
+    this.requestId,
+    this.requestStatus,
+    this.requestStatusLabel,
+  });
+
+  final String oktru;
+  final bool autoPublication;
+  final List<NktRequestAttributeValue> attributes;
+  final int? requestId;
+  final String? requestStatus;
+  final String? requestStatusLabel;
+
+  factory NktRequestFormData.fromJson(Map<String, dynamic> json) {
+    final raw = json['attributes'] as List<dynamic>? ?? const [];
+    return NktRequestFormData(
+      oktru: json['oktru']?.toString() ?? '',
+      autoPublication: json['autoPublication'] == true,
+      attributes: raw
+          .whereType<Map<String, dynamic>>()
+          .map(NktRequestAttributeValue.fromJson)
+          .toList(),
+      requestId: json['request_id'] as int?,
+      requestStatus: json['request_status'] as String?,
+      requestStatusLabel: json['request_status_label'] as String?,
+    );
+  }
+}
+
+class NktRequestAttribute {
+  NktRequestAttribute({
+    required this.code,
+    required this.nameRu,
+    required this.nameKk,
+    required this.dataType,
+    this.attributeType,
+    this.isRequired = false,
+    this.dictionaryCode,
+    this.descriptionRu,
+    this.nested = const [],
+  });
+
+  final String code;
+  final String nameRu;
+  final String nameKk;
+  final String dataType;
+  final String? attributeType;
+  final bool isRequired;
+  final String? dictionaryCode;
+  final String? descriptionRu;
+  final List<NktRequestAttribute> nested;
+
+  bool get isCompound =>
+      attributeType == 'compound' || attributeType == 'compoundStandard';
+
+  factory NktRequestAttribute.fromJson(Map<String, dynamic> json) {
+    final nestedRaw = json['attributes'] as List<dynamic>? ?? const [];
+    return NktRequestAttribute(
+      code: json['code']?.toString() ?? '',
+      nameRu: json['nameRu']?.toString() ?? json['name_ru']?.toString() ?? '',
+      nameKk: json['nameKk']?.toString() ?? json['name_kk']?.toString() ?? '',
+      dataType: json['dataType']?.toString() ?? 'string',
+      attributeType: json['attributeType']?.toString(),
+      isRequired: json['isRequired'] == true,
+      dictionaryCode: json['dictionaryCode']?.toString(),
+      descriptionRu: json['descriptionRu']?.toString(),
+      nested: nestedRaw
+          .whereType<Map<String, dynamic>>()
+          .map(NktRequestAttribute.fromJson)
+          .toList(),
+    );
+  }
+}
+
 class NktVariant {
   NktVariant({
     required this.raw,

@@ -3,11 +3,13 @@ import 'product.dart';
 class ProductSetItem {
   final int productId;
   final double quantity;
+  final double price;
   final Product? product;
 
   const ProductSetItem({
     required this.productId,
     required this.quantity,
+    required this.price,
     this.product,
   });
 
@@ -17,9 +19,13 @@ class ProductSetItem {
     if (productRaw is Map<String, dynamic>) {
       product = Product.fromJson(productRaw);
     }
+    final catalogPrice = product?.effectivePrice ?? 0.0;
     return ProductSetItem(
       productId: json['product_id'] as int,
       quantity: _parseDouble(json['quantity']),
+      price: json['price'] != null
+          ? _parseDouble(json['price'])
+          : catalogPrice,
       product: product,
     );
   }

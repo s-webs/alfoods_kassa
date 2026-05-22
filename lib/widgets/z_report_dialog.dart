@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../core/storage.dart';
 import '../core/theme.dart';
+import '../services/z_report_formatter.dart';
+import '../services/z_report_print_service.dart';
 
-/// Просмотр Z-отчёта WebKassa (ответ POST /api/v4/ZReport — без ссылки, только Data).
+/// Просмотр и печать Z-отчёта WebKassa.
 class ZReportDialog extends StatelessWidget {
   const ZReportDialog({
     super.key,
     required this.zReport,
     this.zReportAt,
+    this.storage,
   });
 
   final Map<String, dynamic> zReport;
   final DateTime? zReportAt;
+  final Storage? storage;
 
   static bool hasViewableData(Map<String, dynamic>? zReport) {
     return zReport != null && zReport.isNotEmpty;
@@ -21,72 +26,36 @@ class ZReportDialog extends StatelessWidget {
     BuildContext context, {
     required Map<String, dynamic> zReport,
     DateTime? zReportAt,
+    Storage? storage,
   }) {
     return showDialog<void>(
       context: context,
-      builder: (ctx) => ZReportDialog(zReport: zReport, zReportAt: zReportAt),
+      builder: (ctx) => ZReportDialog(
+        zReport: zReport,
+        zReportAt: zReportAt,
+        storage: storage,
+      ),
     );
   }
 
-  static String? _str(dynamic v) {
-    if (v == null) return null;
-    final s = v.toString().trim();
-    return s.isEmpty ? null : s;
-  }
-
-  static String? _money(dynamic v) {
-    if (v == null) return null;
-    if (v is num) {
-      return '${v.toStringAsFixed(v is int || v == v.roundToDouble() ? 0 : 2)} ₸';
-    }
-    return _str(v);
-  }
-
   List<({String label, String value})> _rows() {
+    final lines = ZReportFormatter.formatLines(zReport, zReportAt: zReportAt);
     final rows = <({String label, String value})>[];
-
-    void add(String label, dynamic value, {bool money = false}) {
-      final v = money ? _money(value) : _str(value);
-      if (v != null) {
-        rows.add((label: label, value: v));
+    for (final line in lines.skip(1)) {
+      if (line.startsWith('---')) {
+        rows.add((label: line, value: ''));
+        continue;
+      }
+      final colon = line.indexOf(': ');
+      if (colon > 0) {
+        rows.add((
+          label: line.substring(0, colon),
+          value: line.substring(colon + 2),
+        ));
+      } else {
+        rows.add((label: '', value: line));
       }
     }
-
-    add('№ Z-отчёта', zReport['ReportNumber']);
-    add('№ смены WebKassa', zReport['ShiftNumber']);
-    add('Начало смены', zReport['StartOn']);
-    add('Закрытие смены', zReport['CloseOn']);
-    add('Дата отчёта', zReport['ReportOn']);
-    add('Организация', zReport['TaxPayerName']);
-    add('ИИН/БИН', zReport['TaxPayerIN']);
-    add('ЗНК', zReport['CashboxSN']);
-    add('РНК', zReport['CashboxRN']);
-    add('Кассир', zReport['CashierName']);
-    add('Документов за смену', zReport['DocumentCount']);
-    add('Наличных в кассе', zReport['SumInCashbox'], money: true);
-    add('Внесения', zReport['PutMoneySum'], money: true);
-    add('Изъятия', zReport['TakeMoneySum'], money: true);
-
-    final sell = zReport['Sell'];
-    if (sell is Map) {
-      add('Продажи (сумма)', sell['Taken'], money: true);
-      add('Продажи (операций)', sell['Count']);
-      add('НДС продаж', sell['VAT'], money: true);
-    }
-
-    final returnSell = zReport['ReturnSell'];
-    if (returnSell is Map && (returnSell['Count'] as num? ?? 0) > 0) {
-      add('Возвраты (сумма)', returnSell['Taken'], money: true);
-      add('Возвраты (операций)', returnSell['Count']);
-    }
-
-    if (zReport['OfflineMode'] == true) {
-      rows.add((
-        label: 'Режим',
-        value: 'Автономный (offline)',
-      ));
-    }
-
     return rows;
   }
 
@@ -103,38 +72,38 @@ class ZReportDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (zReportAt != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    'Сформирован: ${zReportAt!.toLocal().toString().substring(0, 16)}',
-                    style: TextStyle(color: AppColors.muted, fontSize: 12),
-                  ),
-                ),
               ...rows.map(
                 (r) => Padding(
                   padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 150,
-                        child: Text(
+                  child: r.value.isEmpty
+                      ? Text(
                           r.label,
-                          style: TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 13,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
                           ),
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 150,
+                              child: Text(
+                                r.label,
+                                style: TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: SelectableText(
+                                r.value,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      Expanded(
-                        child: SelectableText(
-                          r.value,
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ],
@@ -142,6 +111,18 @@ class ZReportDialog extends StatelessWidget {
         ),
       ),
       actions: [
+        if (storage != null)
+          TextButton.icon(
+            onPressed: () async {
+              await ZReportPrintService(storage!).print(
+                context,
+                zReport: zReport,
+                zReportAt: zReportAt,
+              );
+            },
+            icon: const Icon(Icons.print_outlined),
+            label: const Text('Печать'),
+          ),
         FilledButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Закрыть'),

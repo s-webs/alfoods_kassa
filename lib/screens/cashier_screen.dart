@@ -32,6 +32,7 @@ import '../widgets/fiscal_receipt_dialog.dart';
 import '../widgets/z_report_dialog.dart';
 import '../utils/webkassa_error_display.dart';
 import '../widgets/kaspi_pos_payment_dialog.dart';
+import '../widgets/mixed_payment_dialog.dart';
 import '../widgets/pos_payment_method_dialog.dart';
 
 class CashierScreen extends StatefulWidget {
@@ -215,6 +216,7 @@ class _CashierScreenState extends State<CashierScreen> {
           context,
           zReport: zReport!,
           zReportAt: result.shift.webkassaZReportAt,
+          storage: widget.storage,
         );
       }
     } on ApiWebkassaException catch (e) {
@@ -1277,6 +1279,173 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
+  Future<void> _openMixedPayment() async {
+    if (!_validateCheckoutPreconditions(requireCashier: true)) {
+      return;
+    }
+
+    final state = CashierStateScope.of(context);
+    final splits = await MixedPaymentDialog.show(
+      context,
+      totalAmount: state.cartTotal,
+      kaspiEnabled: widget.storage.isPosConfigured,
+    );
+    if (splits == null || !mounted) {
+      _refocusBarcodeField();
+      return;
+    }
+
+    final customerXin = _readCustomerXinForCheckout();
+    if (customerXin == _invalidCustomerXin) {
+      _refocusBarcodeField();
+      return;
+    }
+    final externalCheck = _readExternalCheckNumberForCheckout();
+    if (externalCheck == _invalidExternalCheck) {
+      _refocusBarcodeField();
+      return;
+    }
+
+    final shift = _currentOpenShift!;
+    final kaspiSplits =
+        splits.where((s) => s.method.requiresKaspiTerminal).toList();
+
+    if (kaspiSplits.isNotEmpty && !widget.storage.isPosConfigured) {
+      showToast(
+        context,
+        'Настройте Kaspi POS: укажите IP и зарегистрируйте кассу в настройках',
+      );
+      _refocusBarcodeField();
+      return;
+    }
+
+    setState(() {
+      _isPosPaying = true;
+      _error = null;
+    });
+
+    final posTransactions = <PosTransactionDto>[];
+
+    try {
+      for (final split in kaspiSplits) {
+        final amount = split.amount.round();
+        if (amount <= 0) {
+          showToast(context, 'Сумма Kaspi-оплаты должна быть больше 0 ₸');
+          setState(() => _isPosPaying = false);
+          _refocusBarcodeField();
+          return;
+        }
+
+        final start = await _kaspiPosService.startPayment(amount);
+        if (!mounted) return;
+
+        final result = await KaspiPosPaymentDialog.show(
+          context: context,
+          amount: amount,
+          processId: start.processId,
+          title: '${split.method.label} — $amount ₸',
+          poll: (processId, onUpdate) => _kaspiPosService.pollUntilFinished(
+            processId,
+            onUpdate: onUpdate,
+          ),
+          actualize: _kaspiPosService.actualize,
+        );
+
+        if (!mounted) return;
+        if (result == null) {
+          setState(() => _isPosPaying = false);
+          _refocusBarcodeField();
+          return;
+        }
+
+        if (result.status != 'success') {
+          showToast(context, result.message ?? 'Оплата не выполнена');
+          setState(() => _isPosPaying = false);
+          _refocusBarcodeField();
+          return;
+        }
+
+        final terminalMethod =
+            result.method ?? result.chequeInfo?['method']?.toString() ?? 'card';
+        final transactionId = result.transactionId ??
+            result.chequeInfo?['orderNumber']?.toString() ??
+            result.chequeInfo?['rrn']?.toString();
+
+        if (transactionId == null || transactionId.isEmpty) {
+          showToast(context, 'Нет ID транзакции терминала');
+          setState(() => _isPosPaying = false);
+          _refocusBarcodeField();
+          return;
+        }
+
+        posTransactions.add(
+          PosTransactionDto(
+            method: terminalMethod,
+            transactionId: transactionId,
+            amount: amount.toDouble(),
+            processId: result.processId,
+            paidAt: DateTime.now(),
+          ),
+        );
+      }
+
+      final fiscalResult = await _checkoutService.finalizeMixedOfdSale(
+        cashierId: _resolvedCashierId!,
+        shiftId: shift.id,
+        items: state.cart.map((c) => c.toJson()).toList(),
+        paymentSplits: splits,
+        posTransactions:
+            posTransactions.isEmpty ? null : posTransactions,
+        customerXin: customerXin,
+        externalCheckNumber: externalCheck,
+        draftSaleId: state.lastSavedSaleId,
+      );
+
+      if (posTransactions.isNotEmpty) {
+        await _posPaymentStore.save(
+          fiscalResult.sale.id,
+          PosPaymentRecord(
+            method: posTransactions.first.method,
+            transactionId: posTransactions.first.transactionId,
+            amount: posTransactions.first.amount.round(),
+            processId: posTransactions.first.processId ?? '',
+            paidAt: posTransactions.first.paidAt ?? DateTime.now(),
+          ),
+        );
+      }
+
+      if (!mounted) return;
+      await _showFiscalSuccess(fiscalResult.fiscal);
+      _clearFiscalCheckoutFields();
+      state.clearCart();
+      setState(() => _isPosPaying = false);
+      _refocusBarcodeField();
+    } on KaspiPosException catch (e) {
+      if (!mounted) return;
+      setState(() => _isPosPaying = false);
+      showToast(context, e.message);
+      _refocusBarcodeField();
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      setState(() => _isPosPaying = false);
+      showToast(
+        context,
+        posTransactions.isNotEmpty
+            ? 'Оплата на терминале прошла, чек WebKassa не пробит: ${formatWebkassaError(e)}'
+            : formatWebkassaError(e),
+      );
+      if (e.fiscal != null) {
+        await FiscalReceiptDialog.show(context, fiscal: e.fiscal!);
+      }
+      _refocusBarcodeField();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isPosPaying = false);
+      showToast(context, 'Ошибка смешанной оплаты: $e');
+      _refocusBarcodeField();
+    }
+  }
+
   Future<void> _payWithoutOfd() async {
     await _completeNonOfdCheckout(
       SalePaymentMethod.payment,
@@ -2288,6 +2457,16 @@ class _CashierScreenState extends State<CashierScreen> {
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.danger,
               side: const BorderSide(color: AppColors.danger),
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: isPosCheckoutEnabled ? _openMixedPayment : null,
+            icon: const Icon(Icons.account_balance_wallet_outlined, size: 20),
+            label: const Text('Смешанная оплата'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
             ),
           ),
           const SizedBox(width: 12),

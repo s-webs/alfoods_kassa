@@ -29,6 +29,7 @@ class Sale {
   final String? customerXin;
   final String? paymentMethod;
   final SalePosTransaction? posTransaction;
+  final List<SalePosTransaction> posTransactions;
   final List<Sale> returnSales;
   final double returnedTotal;
 
@@ -55,6 +56,7 @@ class Sale {
     this.customerXin,
     this.paymentMethod,
     this.posTransaction,
+    this.posTransactions = const [],
     this.returnSales = const [],
     this.returnedTotal = 0,
   });
@@ -125,11 +127,8 @@ class Sale {
       externalCheckNumber: json['external_check_number']?.toString(),
       customerXin: json['customer_xin']?.toString(),
       paymentMethod: json['payment_method']?.toString(),
-      posTransaction: json['pos_transaction'] is Map<String, dynamic>
-          ? SalePosTransaction.fromJson(
-              json['pos_transaction'] as Map<String, dynamic>,
-            )
-          : null,
+      posTransactions: _parsePosTransactions(json),
+      posTransaction: _parsePosTransaction(json),
       returnSales: json['return_sales'] is List
           ? (json['return_sales'] as List)
               .whereType<Map<String, dynamic>>()
@@ -138,6 +137,27 @@ class Sale {
           : const [],
       returnedTotal: _parseDouble(json['returned_total']),
     );
+  }
+
+  static List<SalePosTransaction> _parsePosTransactions(Map<String, dynamic> json) {
+    final raw = json['pos_transactions'];
+    if (raw is List) {
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(SalePosTransaction.fromJson)
+          .toList();
+    }
+    final single = _parsePosTransaction(json);
+    return single != null ? [single] : const [];
+  }
+
+  static SalePosTransaction? _parsePosTransaction(Map<String, dynamic> json) {
+    if (json['pos_transaction'] is Map<String, dynamic>) {
+      return SalePosTransaction.fromJson(
+        json['pos_transaction'] as Map<String, dynamic>,
+      );
+    }
+    return null;
   }
 
   static int _parseInt(dynamic v) {

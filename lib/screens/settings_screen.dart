@@ -679,7 +679,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                       decoration: const InputDecoration(
                         labelText: 'Принтер для печати',
                         border: OutlineInputBorder(),
-                        helperText: ' ',
+                        helperText:
+                            'В драйвере принтера укажите бумагу 80 мм. '
+                            'PDF масштабируется под печатную область (fit).',
                       ),
                       items: [
                         const DropdownMenuItem(

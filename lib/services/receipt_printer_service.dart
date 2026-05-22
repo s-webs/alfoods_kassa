@@ -20,6 +20,10 @@ class ReceiptPrinterService {
   static const int _lineWidth = 48; // 80мм ~ 48 символов
   static const String _companyName = 'Almaty Foods';
 
+  /// Sumatra `-print-settings` для товарного чека в режиме pdf_direct.
+  /// `fit` вписывает 80 мм PDF в печатную область драйвера (без обрезания справа).
+  static const String _receiptPdfDirectPrintSettings = 'fit,monochrome';
+
   // ── ESC/POS константы ──────────────────────────────────────────────────────
   static const int _ESC = 0x1B;
   static const int _GS = 0x1D;
@@ -413,7 +417,7 @@ class ReceiptPrinterService {
       final success = await PdfPrinterPlugin.printPdf(
         pdfBytes: pdfBytes,
         printerName: printerName,
-        printSettings: 'noscale,monochrome',
+        printSettings: _receiptPdfDirectPrintSettings,
       );
       if (!success) {
         throw Exception('Не удалось отправить PDF на печать');

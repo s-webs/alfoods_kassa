@@ -91,13 +91,21 @@ class SaleDetailInfoSection extends StatelessWidget {
                 label: const Text('Открыть чек WebKassa'),
               ),
             ],
-            if (sale.posTransaction != null) ...[
+            if (sale.posTransactions.isNotEmpty) ...[
               const Divider(),
-              _row(
-                'Kaspi POS',
-                '${sale.posTransaction!.method} • ${sale.posTransaction!.amount} ₸',
-              ),
-              _row('Транзакция', sale.posTransaction!.transactionId),
+              for (var i = 0; i < sale.posTransactions.length; i++) ...[
+                if (i > 0) const SizedBox(height: 8),
+                _row(
+                  sale.posTransactions.length > 1
+                      ? 'Kaspi POS ${i + 1}'
+                      : 'Kaspi POS',
+                  '${sale.posTransactions[i].method} • ${sale.posTransactions[i].amount} ₸',
+                ),
+                _row(
+                  'Транзакция',
+                  sale.posTransactions[i].transactionId,
+                ),
+              ],
             ],
           ],
         ),

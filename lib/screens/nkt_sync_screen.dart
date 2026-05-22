@@ -7,9 +7,11 @@ import '../core/theme.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
 import '../utils/product_search.dart';
+import '../utils/nkt_request_ui.dart';
 import '../utils/toast.dart';
+import '../widgets/nkt_request_actions_panel.dart';
 
-enum _NktFilter { all, unlinked, linked, notFound, noBarcode }
+enum _NktFilter { all, unlinked, linked, notFound, noBarcode, withRequest }
 
 class NktSyncScreen extends StatefulWidget {
   const NktSyncScreen({super.key, required this.apiService});
@@ -107,6 +109,9 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
           break;
         case _NktFilter.noBarcode:
           if (productHasScannableBarcode(p)) return false;
+          break;
+        case _NktFilter.withRequest:
+          if (!p.hasNktRequest) return false;
           break;
         case _NktFilter.all:
           break;
@@ -271,6 +276,17 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
     }
   }
 
+  void _replaceProduct(Product updated) {
+    setState(() {
+      final idx = _products.indexWhere((p) => p.id == updated.id);
+      if (idx >= 0) _products[idx] = updated;
+    });
+  }
+
+  void _onCreateRequest(Product product) {
+    context.push('/nkt/${product.id}?tab=request');
+  }
+
   Future<void> _onUnlink(Product product) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -403,6 +419,7 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
         .where((p) => p.nktIsDeactivated == true)
         .length;
     final notFoundCount = _products.where((p) => p.isNktNotFound).length;
+    final requestCount = _products.where((p) => p.hasNktRequest).length;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -427,7 +444,8 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
               Text(
                 'Привязано: $linkedCount из ${_products.length}'
                 '${notFoundCount > 0 ? ' · не найдено: $notFoundCount' : ''}'
-                '${deactivatedCount > 0 ? ' · деактивировано в НКТ: $deactivatedCount' : ''}',
+                '${deactivatedCount > 0 ? ' · деактивировано в НКТ: $deactivatedCount' : ''}'
+                '${requestCount > 0 ? ' · заявок: $requestCount' : ''}',
                 style: const TextStyle(color: AppColors.surface, fontSize: 13),
               ),
             ],
@@ -510,6 +528,10 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
             ButtonSegment(
               value: _NktFilter.noBarcode,
               label: Text('Без штрихкода'),
+            ),
+            ButtonSegment(
+              value: _NktFilter.withRequest,
+              label: Text('С заявкой'),
             ),
           ],
           selected: {_filter},
@@ -621,7 +643,7 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 260),
+                const SizedBox(width: 300),
               ],
             ),
           ),
@@ -649,6 +671,10 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
                   onRefresh: () => _onRefresh(p),
                   onUnlink: () => _onUnlink(p),
                   onDetails: () => _onDetails(p),
+                  onCreateRequest: () => _onCreateRequest(p),
+                  onOpenRequestTab: () => context.push('/nkt/${p.id}?tab=request'),
+                  onProductUpdated: _replaceProduct,
+                  apiService: widget.apiService,
                 );
               },
             ),
@@ -668,6 +694,10 @@ class _ProductRow extends StatelessWidget {
     required this.onRefresh,
     required this.onUnlink,
     required this.onDetails,
+    required this.onCreateRequest,
+    required this.onOpenRequestTab,
+    required this.onProductUpdated,
+    required this.apiService,
   });
 
   final Product product;
@@ -677,6 +707,10 @@ class _ProductRow extends StatelessWidget {
   final VoidCallback onRefresh;
   final VoidCallback onUnlink;
   final VoidCallback onDetails;
+  final VoidCallback onCreateRequest;
+  final VoidCallback onOpenRequestTab;
+  final ValueChanged<Product> onProductUpdated;
+  final ApiService apiService;
 
   @override
   Widget build(BuildContext context) {
@@ -734,13 +768,17 @@ class _ProductRow extends StatelessWidget {
               child: _NktStatus(product: product),
             ),
             SizedBox(
-              width: 260,
+              width: 300,
               child: _RowActions(
                 product: product,
+                apiService: apiService,
                 onSync: onSync,
                 onRefresh: onRefresh,
                 onUnlink: onUnlink,
                 onDetails: onDetails,
+                onCreateRequest: onCreateRequest,
+                onOpenRequestTab: onOpenRequestTab,
+                onProductUpdated: onProductUpdated,
               ),
             ),
           ],
@@ -758,6 +796,13 @@ class _NktStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!product.isLinkedToNkt) {
+      if (product.hasNktRequest) {
+        return _ChipBadge(
+          label: product.nktRequestStatusDisplay,
+          color: nktRequestStatusColor(product.nktRequestStatus),
+          icon: Icons.assignment_outlined,
+        );
+      }
       if (product.isNktNotFound) {
         return Row(
           children: [
@@ -852,17 +897,25 @@ class _ChipBadge extends StatelessWidget {
 class _RowActions extends StatelessWidget {
   const _RowActions({
     required this.product,
+    required this.apiService,
     required this.onSync,
     required this.onRefresh,
     required this.onUnlink,
     required this.onDetails,
+    required this.onCreateRequest,
+    required this.onOpenRequestTab,
+    required this.onProductUpdated,
   });
 
   final Product product;
+  final ApiService apiService;
   final VoidCallback onSync;
   final VoidCallback onRefresh;
   final VoidCallback onUnlink;
   final VoidCallback onDetails;
+  final VoidCallback onCreateRequest;
+  final VoidCallback onOpenRequestTab;
+  final ValueChanged<Product> onProductUpdated;
 
   @override
   Widget build(BuildContext context) {
@@ -871,6 +924,25 @@ class _RowActions extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        if (nktCanCreateRequest(product))
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: OutlinedButton(
+              onPressed: onCreateRequest,
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              ),
+              child: const Text('Заявка', style: TextStyle(fontSize: 12)),
+            ),
+          ),
+        if (product.hasNktRequest)
+          NktRequestActionsPanel(
+            api: apiService,
+            product: product,
+            compact: true,
+            onProductUpdated: onProductUpdated,
+            onOpenRequestTab: onOpenRequestTab,
+          ),
         if (!product.isLinkedToNkt)
           FilledButton.icon(
             onPressed: hasBarcode ? onSync : null,

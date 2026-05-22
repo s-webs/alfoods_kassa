@@ -42,11 +42,24 @@ class SetFormScreen extends StatefulWidget {
 enum SetFormMode { create, edit }
 
 class _SetItem {
-  _SetItem({required this.productId, required this.productName, required this.quantity});
+  _SetItem({
+    required this.productId,
+    required this.productName,
+    required this.quantity,
+    required this.price,
+  });
 
   final int productId;
   final String productName;
   double quantity;
+  double price;
+}
+
+double _sumSetItemsPrice(List<_SetItem> items) {
+  return items.fold<double>(
+    0,
+    (sum, item) => sum + item.price * item.quantity,
+  );
 }
 
 class _SetFormScreenState extends State<SetFormScreen> {
@@ -111,17 +124,17 @@ class _SetFormScreenState extends State<SetFormScreen> {
       else merged.remove('description');
       return Product(
         id: 0,
-        name: _set!.name,
+        name: _nameController.text.trim().isEmpty ? _set!.name : _nameController.text.trim(),
         slug: '',
         barcode: _set!.barcode,
-        price: _set!.price,
+        price: _computedSetPrice,
         discountPrice: _set!.discountPrice,
         unit: 'pcs',
         meta: merged.isEmpty ? null : merged,
       );
     }
     final metaWithDesc = desc.isEmpty ? null : <String, dynamic>{'description': desc};
-    final price = double.tryParse(_priceController.text) ?? 0;
+    final price = _computedSetPrice;
     final discountPrice = double.tryParse(_discountPriceController.text);
     final barcodeStr = _barcodeController.text.trim();
     return Product(
@@ -341,6 +354,12 @@ class _SetFormScreenState extends State<SetFormScreen> {
     return meta.isEmpty ? null : meta;
   }
 
+  double get _computedSetPrice => _sumSetItemsPrice(_items);
+
+  void _syncPriceController() {
+    _priceController.text = _computedSetPrice.toStringAsFixed(2);
+  }
+
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -363,7 +382,6 @@ class _SetFormScreenState extends State<SetFormScreen> {
         setState(() {
           _set = s;
           _nameController.text = s.name;
-          _priceController.text = s.price.toString();
           _discountPriceController.text = s.discountPrice?.toString() ?? '';
           _barcodeController.text = s.barcode ?? '';
           _isActive = s.isActive;
@@ -372,8 +390,10 @@ class _SetFormScreenState extends State<SetFormScreen> {
                     productId: i.productId,
                     productName: i.product?.name ?? 'ID:${i.productId}',
                     quantity: i.quantity,
+                    price: i.price,
                   ))
               .toList();
+          _syncPriceController();
           _labelBlockLayout = labelTpl.blockLayout;
           _labelWidthMm = labelTpl.widthMm;
           _labelHeightMm = labelTpl.heightMm;
@@ -436,25 +456,39 @@ class _SetFormScreenState extends State<SetFormScreen> {
             productId: result.product.id,
             productName: result.product.name,
             quantity: result.quantity,
+            price: result.price,
           ));
         }
+        _syncPriceController();
       });
     }
   }
 
   void _removeItem(int index) {
-    setState(() => _items.removeAt(index));
+    setState(() {
+      _items.removeAt(index);
+      _syncPriceController();
+    });
   }
 
   List<Map<String, dynamic>> _mergeItemsByProductId() {
-    final map = <int, double>{};
+    final map = <int, ({double quantity, double price})>{};
     for (final item in _items) {
-      map[item.productId] = (map[item.productId] ?? 0) + item.quantity;
+      final existing = map[item.productId];
+      if (existing == null) {
+        map[item.productId] = (quantity: item.quantity, price: item.price);
+      } else {
+        map[item.productId] = (
+          quantity: existing.quantity + item.quantity,
+          price: existing.price,
+        );
+      }
     }
     return map.entries
         .map((e) => {
               'product_id': e.key,
-              'quantity': e.value,
+              'quantity': e.value.quantity,
+              'price': e.value.price,
             })
         .toList();
   }
@@ -462,12 +496,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final name = _nameController.text.trim();
-    final price = double.tryParse(_priceController.text);
     if (name.isEmpty) return;
-    if (price == null || price < 0) {
-      showToast(context, 'Введите корректную цену');
-      return;
-    }
     if (_items.isEmpty) {
       showToast(context, 'Добавьте хотя бы один товар в сет');
       return;
@@ -480,7 +509,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
     try {
       final data = <String, dynamic>{
         'name': name,
-        'price': price,
+        'price': _computedSetPrice,
         'barcode': _barcodeController.text.trim().isEmpty
             ? null
             : _barcodeController.text.trim(),
@@ -658,20 +687,17 @@ class _SetFormScreenState extends State<SetFormScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _priceController,
+              InputDecorator(
                 decoration: const InputDecoration(
-                  labelText: 'Цена',
-                  hintText: '0.00',
+                  labelText: 'Цена сета (сумма позиций)',
+                  border: OutlineInputBorder(),
                 ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Обязательное поле';
-                  if (double.tryParse(v) == null || double.parse(v) < 0) {
-                    return 'Введите корректную цену';
-                  }
-                  return null;
-                },
+                child: Text(
+                  '${_computedSetPrice.toStringAsFixed(2)} ₸',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
               ),
               const SizedBox(height: 16),
               TextFormField(
@@ -757,14 +783,51 @@ class _SetFormScreenState extends State<SetFormScreen> {
                   final item = entry.value;
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: Text(item.productName),
-                      subtitle: Text(
-                        '× ${item.quantity.toStringAsFixed(item.quantity == item.quantity.roundToDouble() ? 0 : 2)}',
-                      ),
-                      trailing: IconButton(
-                        icon: Icon(Icons.remove_circle_outline, color: AppColors.danger),
-                        onPressed: () => _removeItem(i),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.productName,
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                                Text(
+                                  'Кол-во: ${item.quantity.toStringAsFixed(item.quantity == item.quantity.roundToDouble() ? 0 : 2)}',
+                                  style: TextStyle(color: AppColors.muted, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(
+                            width: 100,
+                            child: TextFormField(
+                              initialValue: item.price.toStringAsFixed(2),
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: const InputDecoration(
+                                labelText: 'Цена, ₸',
+                                isDense: true,
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (v) {
+                                final p = double.tryParse(v.replaceFirst(',', '.').trim());
+                                if (p != null && p >= 0) {
+                                  setState(() {
+                                    item.price = p;
+                                    _syncPriceController();
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.remove_circle_outline, color: AppColors.danger),
+                            onPressed: () => _removeItem(i),
+                          ),
+                        ],
                       ),
                     ),
                   );

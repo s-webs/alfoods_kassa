@@ -9,10 +9,12 @@ class AddProductToSetResult {
   const AddProductToSetResult({
     required this.product,
     required this.quantity,
+    required this.price,
   });
 
   final Product product;
   final double quantity;
+  final double price;
 }
 
 /// Диалог выбора товара и количества для добавления в сет.
@@ -96,28 +98,37 @@ class _AddProductToSetDialogState extends State<AddProductToSetDialog> {
   }
 
   Future<void> _selectProduct(Product product) async {
-    final quantity = await showDialog<double>(
+    final result = await showDialog<({double quantity, double price})>(
       context: context,
       builder: (ctx) {
-        final controller = TextEditingController(text: '1');
+        final qtyController = TextEditingController(text: '1');
+        final priceController = TextEditingController(
+          text: product.effectivePrice.toStringAsFixed(2),
+        );
         return AlertDialog(
-          title: Text('Количество: ${product.name}'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Количество',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (_) {
-              final v = double.tryParse(
-                controller.text.replaceFirst(',', '.').trim(),
-              );
-              if (v != null && v > 0) {
-                Navigator.of(ctx).pop(v);
-              }
-            },
+          title: Text(product.name),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: qtyController,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Количество',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: priceController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Цена в сете, ₸',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -126,11 +137,14 @@ class _AddProductToSetDialogState extends State<AddProductToSetDialog> {
             ),
             FilledButton(
               onPressed: () {
-                final v = double.tryParse(
-                  controller.text.replaceFirst(',', '.').trim(),
+                final qty = double.tryParse(
+                  qtyController.text.replaceFirst(',', '.').trim(),
                 );
-                if (v != null && v > 0) {
-                  Navigator.of(ctx).pop(v);
+                final price = double.tryParse(
+                  priceController.text.replaceFirst(',', '.').trim(),
+                );
+                if (qty != null && qty > 0 && price != null && price >= 0) {
+                  Navigator.of(ctx).pop((quantity: qty, price: price));
                 }
               },
               child: const Text('Добавить'),
@@ -139,8 +153,15 @@ class _AddProductToSetDialogState extends State<AddProductToSetDialog> {
         );
       },
     );
-    if (quantity != null && quantity > 0 && mounted) {
-      Navigator.pop(context, AddProductToSetResult(product: product, quantity: quantity));
+    if (result != null && mounted) {
+      Navigator.pop(
+        context,
+        AddProductToSetResult(
+          product: product,
+          quantity: result.quantity,
+          price: result.price,
+        ),
+      );
     }
   }
 
