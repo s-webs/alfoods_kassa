@@ -1737,8 +1737,8 @@ class _CashierScreenState extends State<CashierScreen> {
       return;
     }
     final printMode = widget.storage.receiptPrintMode;
-    if (printMode == 'raw' && !Platform.isWindows) {
-      showToast(context, 'RAW печать доступна только на Windows');
+    if (printMode != 'pdf' && !Platform.isWindows) {
+      showToast(context, 'Печать чека доступна только на Windows');
       _refocusBarcodeField();
       return;
     }
@@ -1757,16 +1757,19 @@ class _CashierScreenState extends State<CashierScreen> {
         0,
         (sum, item) => sum + item.quantity,
       );
-      final bytes = ReceiptPrinterService.buildReceipt(
-        saleId: id,
-        cashierName: _cashierName,
-        items: state.cart,
-        total: state.cartTotal,
-        totalQty: totalQty,
-        dateTime: dateTime,
-        rawEncoding: widget.storage.receiptRawEncoding,
-        xprinterCyrillicPreamble: widget.storage.receiptRawXprinterPreamble,
-      );
+      final bytes = printMode == 'raw'
+          ? ReceiptPrinterService.buildReceipt(
+              saleId: id,
+              cashierName: _cashierName,
+              items: state.cart,
+              total: state.cartTotal,
+              totalQty: totalQty,
+              dateTime: dateTime,
+              rawEncoding: widget.storage.receiptRawEncoding,
+              xprinterCyrillicPreamble:
+                  widget.storage.receiptRawXprinterPreamble,
+            )
+          : <int>[];
       await ReceiptPrinterService.printReceipt(
         printerName: widget.storage.receiptPrinterName,
         bytes: bytes,
@@ -1784,8 +1787,10 @@ class _CashierScreenState extends State<CashierScreen> {
         printMode == 'pdf'
             ? 'Открыт диалог печати'
             : printMode == 'pdf_direct'
-            ? 'PDF отправлен на печать'
-            : 'Чек отправлен на печать',
+                ? 'PDF отправлен на печать'
+                : printMode == 'native'
+                    ? 'Чек отправлен на печать (Windows)'
+                    : 'Чек отправлен на печать',
       );
       _refocusBarcodeField();
     } catch (e) {
@@ -2397,6 +2402,23 @@ class _CashierScreenState extends State<CashierScreen> {
     final isNonOfdCheckoutEnabled = isBaseCheckoutEnabled;
     final isCreditSaleEnabled = isBaseCheckoutEnabled;
 
+    const actionButtonIconSize = 24.0;
+    const actionButtonShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(8)),
+    );
+    final outlinedActionButtonStyle = OutlinedButton.styleFrom(
+      minimumSize: const Size(0, 52),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      shape: actionButtonShape,
+    );
+    final filledActionButtonStyle = FilledButton.styleFrom(
+      minimumSize: const Size(0, 52),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      shape: actionButtonShape,
+    );
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -2426,9 +2448,9 @@ class _CashierScreenState extends State<CashierScreen> {
                 ),
                 Text(
                   'Кол-во: ${_formatCartTotalQty(state.cartTotalQty)}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: cartNotEmpty ? AppColors.primary : AppColors.muted,
-                    fontWeight: FontWeight.w600,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: cartNotEmpty ? Colors.green : AppColors.muted,
                   ),
                 ),
               ],
@@ -2439,45 +2461,57 @@ class _CashierScreenState extends State<CashierScreen> {
             onPressed: cartNotEmpty && !_isResetting ? _resetCart : null,
             icon: _isResetting
                 ? const SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: actionButtonIconSize,
+                    height: actionButtonIconSize,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.clear_all, size: 20),
+                : const Icon(Icons.clear_all, size: actionButtonIconSize),
             label: Text(_isResetting ? 'Сброс...' : 'Сброс'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.danger,
-              side: const BorderSide(color: AppColors.danger),
+            style: outlinedActionButtonStyle.copyWith(
+              foregroundColor: WidgetStateProperty.all(AppColors.danger),
+              side: WidgetStateProperty.all(
+                const BorderSide(color: AppColors.danger),
+              ),
             ),
           ),
           const SizedBox(width: 12),
           OutlinedButton.icon(
             onPressed: isCreditSaleEnabled ? _sellOnCredit : null,
-            icon: const Icon(Icons.credit_card, size: 20),
+            icon: const Icon(Icons.credit_card, size: actionButtonIconSize),
             label: const Text('Продать в долг'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.danger,
-              side: const BorderSide(color: AppColors.danger),
+            style: outlinedActionButtonStyle.copyWith(
+              foregroundColor: WidgetStateProperty.all(AppColors.danger),
+              side: WidgetStateProperty.all(
+                const BorderSide(color: AppColors.danger),
+              ),
             ),
           ),
           const SizedBox(width: 12),
           OutlinedButton.icon(
             onPressed: isPosCheckoutEnabled ? _openMixedPayment : null,
-            icon: const Icon(Icons.account_balance_wallet_outlined, size: 20),
+            icon: const Icon(
+              Icons.account_balance_wallet_outlined,
+              size: actionButtonIconSize,
+            ),
             label: const Text('Смешанная оплата'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              side: const BorderSide(color: AppColors.primary),
+            style: outlinedActionButtonStyle.copyWith(
+              foregroundColor: WidgetStateProperty.all(AppColors.primary),
+              side: WidgetStateProperty.all(
+                const BorderSide(color: AppColors.primary),
+              ),
             ),
           ),
           const SizedBox(width: 12),
           OutlinedButton.icon(
             onPressed: isPosCheckoutEnabled ? _openPosPayment : null,
-            icon: const Icon(Icons.point_of_sale, size: 20),
+            icon: const Icon(Icons.point_of_sale, size: actionButtonIconSize),
             label: const Text('POS Оплата'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              side: const BorderSide(color: AppColors.primary),
+            style: outlinedActionButtonStyle.copyWith(
+              foregroundColor: WidgetStateProperty.all(const Color(0xFF1A1A1A)),
+              backgroundColor: WidgetStateProperty.all(const Color(0xFFFFC107)),
+              side: WidgetStateProperty.all(
+                const BorderSide(color: Color(0xFFE6A800)),
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -2485,20 +2519,20 @@ class _CashierScreenState extends State<CashierScreen> {
             onPressed: isNonOfdCheckoutEnabled ? _payWithoutOfd : null,
             icon: _isPaying
                 ? const SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: actionButtonIconSize,
+                    height: actionButtonIconSize,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       color: Colors.white,
                     ),
                   )
-                : const Icon(Icons.shopping_cart_checkout),
+                : const Icon(
+                    Icons.shopping_cart_checkout,
+                    size: actionButtonIconSize,
+                  ),
             label: Text(_isPaying ? 'Оформление...' : 'Продать'),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF43A047),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+            style: filledActionButtonStyle.copyWith(
+              backgroundColor: WidgetStateProperty.all(const Color(0xFF43A047)),
             ),
           ),
         ],
