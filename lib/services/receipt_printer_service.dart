@@ -5,9 +5,11 @@ import 'package:windows_printer/windows_printer.dart';
 
 import '../models/cart_item.dart';
 import '../models/webkassa_print_line.dart';
+import '../utils/receipt_text_wrap.dart';
 import '../utils/webkassa_receipt_layout.dart';
 import '../services/receipt_pdf_service.dart';
 import 'pdf_printer_plugin.dart';
+import 'receipt_native_printer.dart';
 import 'webkassa_receipt_pdf_service.dart';
 
 /// Печать товарного чека на термопринтер 80мм в формате Almaty Foods.
@@ -52,28 +54,6 @@ class ReceiptPrinterService {
     final pad = width - s.length;
     final left = pad ~/ 2;
     return ' ' * left + s + ' ' * (pad - left);
-  }
-
-  static List<String> _wrapText(String text, int maxWidth) {
-    if (text.isEmpty) return [''];
-    if (text.length <= maxWidth) return [text];
-    final lines = <String>[];
-    var remaining = text;
-    while (remaining.isNotEmpty) {
-      if (remaining.length <= maxWidth) {
-        lines.add(remaining);
-        break;
-      }
-      var splitAt = maxWidth;
-      final chunk = remaining.substring(0, maxWidth);
-      final lastSpace = chunk.lastIndexOf(' ');
-      if (lastSpace > maxWidth ~/ 2) {
-        splitAt = lastSpace + 1;
-      }
-      lines.add(remaining.substring(0, splitAt).trim());
-      remaining = remaining.substring(splitAt).trimLeft();
-    }
-    return lines;
   }
 
   static String _formatSum(double v) {
@@ -303,7 +283,7 @@ class ReceiptPrinterService {
 
     // Заголовок таблицы
     const colNo = 3;
-    const colName = 20;
+    const colName = receiptNameColumnChars;
     const colQty = 5;
     const colPrice = 8;
     const colSum = 8;
@@ -324,7 +304,7 @@ class ReceiptPrinterService {
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
       final no = '${i + 1}';
-      final nameLines = _wrapText(item.name, colName);
+      final nameLines = wrapReceiptText(item.name, colName);
       final qty = item.unit == 'pcs'
           ? item.quantity.toInt().toString()
           : item.quantity.toStringAsFixed(2);
@@ -399,6 +379,7 @@ class ReceiptPrinterService {
   ///   - 'raw'        — RAW-печать ESC/POS на термопринтер
   ///   - 'pdf'        — печать через системный диалог
   ///   - 'pdf_direct' — прямая печать PDF без диалога
+  ///   - 'native'     — прямая печать через Windows GDI (без RAW/PDF)
   static Future<void> printReceipt({
     required String? printerName,
     required List<int> bytes,
@@ -410,7 +391,17 @@ class ReceiptPrinterService {
     required double totalQty,
     required DateTime dateTime,
   }) async {
-    if (printMode == 'pdf_direct') {
+    if (printMode == 'native') {
+      await ReceiptNativePrinter.printReceipt(
+        printerName: printerName,
+        saleId: saleId,
+        cashierName: cashierName,
+        items: items,
+        total: total,
+        totalQty: totalQty,
+        dateTime: dateTime,
+      );
+    } else if (printMode == 'pdf_direct') {
       final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
         saleId: saleId,
         cashierName: cashierName,

@@ -2406,6 +2406,31 @@ class _CashierScreenState extends State<CashierScreen> {
     const actionButtonShape = RoundedRectangleBorder(
       borderRadius: BorderRadius.all(Radius.circular(8)),
     );
+    const disabledActionForeground = AppColors.muted;
+    const disabledActionBackground = Color(0xFFF0F0F0);
+    const disabledActionBorder = AppColors.muted;
+
+    Color? resolveActionForeground(Set<WidgetState> states, Color enabled) {
+      return states.contains(WidgetState.disabled)
+          ? disabledActionForeground
+          : enabled;
+    }
+
+    BorderSide resolveActionBorder(Set<WidgetState> states, Color enabled) {
+      return BorderSide(
+        color: states.contains(WidgetState.disabled)
+            ? disabledActionBorder
+            : enabled,
+      );
+    }
+
+    Color? resolveActionBackground(Set<WidgetState> states, Color? enabled) {
+      if (states.contains(WidgetState.disabled)) {
+        return disabledActionBackground;
+      }
+      return enabled;
+    }
+
     final outlinedActionButtonStyle = OutlinedButton.styleFrom(
       minimumSize: const Size(0, 52),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -2468,9 +2493,14 @@ class _CashierScreenState extends State<CashierScreen> {
                 : const Icon(Icons.clear_all, size: actionButtonIconSize),
             label: Text(_isResetting ? 'Сброс...' : 'Сброс'),
             style: outlinedActionButtonStyle.copyWith(
-              foregroundColor: WidgetStateProperty.all(AppColors.danger),
-              side: WidgetStateProperty.all(
-                const BorderSide(color: AppColors.danger),
+              foregroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionForeground(states, AppColors.danger),
+              ),
+              side: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBorder(states, AppColors.danger),
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBackground(states, null),
               ),
             ),
           ),
@@ -2480,9 +2510,14 @@ class _CashierScreenState extends State<CashierScreen> {
             icon: const Icon(Icons.credit_card, size: actionButtonIconSize),
             label: const Text('Продать в долг'),
             style: outlinedActionButtonStyle.copyWith(
-              foregroundColor: WidgetStateProperty.all(AppColors.danger),
-              side: WidgetStateProperty.all(
-                const BorderSide(color: AppColors.danger),
+              foregroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionForeground(states, AppColors.danger),
+              ),
+              side: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBorder(states, AppColors.danger),
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBackground(states, null),
               ),
             ),
           ),
@@ -2495,9 +2530,14 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
             label: const Text('Смешанная оплата'),
             style: outlinedActionButtonStyle.copyWith(
-              foregroundColor: WidgetStateProperty.all(AppColors.primary),
-              side: WidgetStateProperty.all(
-                const BorderSide(color: AppColors.primary),
+              foregroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionForeground(states, AppColors.primary),
+              ),
+              side: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBorder(states, AppColors.primary),
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBackground(states, null),
               ),
             ),
           ),
@@ -2507,10 +2547,23 @@ class _CashierScreenState extends State<CashierScreen> {
             icon: const Icon(Icons.point_of_sale, size: actionButtonIconSize),
             label: const Text('POS Оплата'),
             style: outlinedActionButtonStyle.copyWith(
-              foregroundColor: WidgetStateProperty.all(const Color(0xFF1A1A1A)),
-              backgroundColor: WidgetStateProperty.all(const Color(0xFFFFC107)),
-              side: WidgetStateProperty.all(
-                const BorderSide(color: Color(0xFFE6A800)),
+              foregroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionForeground(
+                  states,
+                  const Color(0xFF1A1A1A),
+                ),
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBackground(
+                  states,
+                  const Color(0xFFFFC107),
+                ),
+              ),
+              side: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBorder(
+                  states,
+                  const Color(0xFFE6A800),
+                ),
               ),
             ),
           ),
@@ -2532,7 +2585,15 @@ class _CashierScreenState extends State<CashierScreen> {
                   ),
             label: Text(_isPaying ? 'Оформление...' : 'Продать'),
             style: filledActionButtonStyle.copyWith(
-              backgroundColor: WidgetStateProperty.all(const Color(0xFF43A047)),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionBackground(
+                  states,
+                  const Color(0xFF43A047),
+                ),
+              ),
+              foregroundColor: WidgetStateProperty.resolveWith(
+                (states) => resolveActionForeground(states, Colors.white),
+              ),
             ),
           ),
         ],

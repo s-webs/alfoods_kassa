@@ -838,8 +838,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
       return;
     }
     final printMode = widget.storage.receiptPrintMode;
-    if ((printMode == 'raw' || printMode == 'pdf_direct') && !Platform.isWindows) {
-      showToast(context, 'RAW и PDF Direct печать доступны только на Windows');
+    if (printMode != 'pdf' && !Platform.isWindows) {
+      showToast(context, 'Печать чека доступна только на Windows');
       return;
     }
     if (_items.isEmpty) {
@@ -852,16 +852,19 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
       final dateTime =
           TimeUtil.toUtcPlus5Wall(_sale?.createdAt ?? DateTime.now());
       final totalQty = _itemsTotalQty;
-      final bytes = ReceiptPrinterService.buildReceipt(
-        saleId: widget.saleId,
-        cashierName: cashierName,
-        items: _items,
-        total: _itemsTotal,
-        totalQty: totalQty,
-        dateTime: dateTime,
-        rawEncoding: widget.storage.receiptRawEncoding,
-        xprinterCyrillicPreamble: widget.storage.receiptRawXprinterPreamble,
-      );
+      final bytes = printMode == 'raw'
+          ? ReceiptPrinterService.buildReceipt(
+              saleId: widget.saleId,
+              cashierName: cashierName,
+              items: _items,
+              total: _itemsTotal,
+              totalQty: totalQty,
+              dateTime: dateTime,
+              rawEncoding: widget.storage.receiptRawEncoding,
+              xprinterCyrillicPreamble:
+                  widget.storage.receiptRawXprinterPreamble,
+            )
+          : <int>[];
       await ReceiptPrinterService.printReceipt(
         printerName: widget.storage.receiptPrinterName,
         bytes: bytes,
@@ -874,11 +877,16 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
         dateTime: dateTime,
       );
       if (!mounted) return;
-      showToast(context, printMode == 'pdf'
-          ? 'Открыт диалог печати'
-          : printMode == 'pdf_direct'
-              ? 'PDF отправлен на печать'
-              : 'Чек отправлен на печать');
+      showToast(
+        context,
+        printMode == 'pdf'
+            ? 'Открыт диалог печати'
+            : printMode == 'pdf_direct'
+                ? 'PDF отправлен на печать'
+                : printMode == 'native'
+                    ? 'Чек отправлен на печать (Windows)'
+                    : 'Чек отправлен на печать',
+      );
     } catch (e) {
       if (!mounted) return;
       showToast(context, 'Ошибка печати: ${e.toString().replaceFirst('Exception: ', '')}');

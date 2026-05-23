@@ -106,7 +106,7 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
     if (_isBarcodeLoading || !mounted) return;
     setState(() => _isBarcodeLoading = true);
     try {
-      final result = await widget.apiService.resolveBarcode(barcode);
+      final result = await widget.apiService.resolveBarcodeForCashier(barcode);
       if (!mounted) return;
       if (result != null) {
         if (result.isProduct && result.product != null) {
@@ -235,7 +235,7 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
 
       // 2. Load all products + saved AI→product mappings in parallel
       final futures = await Future.wait([
-        widget.apiService.getProducts(active: true),
+        widget.apiService.getProducts(),
         widget.apiService.getWaybillMappings(),
       ]);
       final allProducts = futures[0] as List<Product>;
@@ -424,6 +424,7 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
       context: context,
       builder: (ctx) => AddProductDialog(
         apiService: widget.apiService,
+        activeOnly: false,
         onAddProduct: (p) {
           _addProduct(p);
           _refocusBarcodeField();

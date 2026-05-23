@@ -65,10 +65,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     if (order.items.isEmpty) return;
 
     final printMode = widget.storage.receiptPrintMode;
-    if ((printMode == 'raw' || printMode == 'pdf_direct') && !Platform.isWindows) {
+    if (printMode != 'pdf' && !Platform.isWindows) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('RAW и PDF Direct печать доступны только на Windows')),
+          const SnackBar(
+            content: Text('Печать чека доступна только на Windows'),
+          ),
         );
       }
       return;
@@ -77,16 +79,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final items = _orderAsCartItems(order);
     final dateTime = TimeUtil.toUtcPlus5Wall(order.createdAt);
     final totalQty = _totalQty(items);
-    final bytes = ReceiptPrinterService.buildReceipt(
-      saleId: order.id,
-      cashierName: _cashierName,
-      items: items,
-      total: order.total,
-      totalQty: totalQty,
-      dateTime: dateTime,
-      rawEncoding: widget.storage.receiptRawEncoding,
-      xprinterCyrillicPreamble: widget.storage.receiptRawXprinterPreamble,
-    );
+    final bytes = printMode == 'raw'
+        ? ReceiptPrinterService.buildReceipt(
+            saleId: order.id,
+            cashierName: _cashierName,
+            items: items,
+            total: order.total,
+            totalQty: totalQty,
+            dateTime: dateTime,
+            rawEncoding: widget.storage.receiptRawEncoding,
+            xprinterCyrillicPreamble:
+                widget.storage.receiptRawXprinterPreamble,
+          )
+        : <int>[];
     await ReceiptPrinterService.printReceipt(
       printerName: widget.storage.receiptPrinterName,
       bytes: bytes,

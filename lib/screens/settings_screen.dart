@@ -11,6 +11,8 @@ import '../models/webkassa_cashbox.dart';
 import '../services/cashier_resolver_service.dart';
 import '../services/kaspi_pos_service.dart';
 import '../services/label_pdf_service.dart';
+import '../models/cart_item.dart';
+import '../services/receipt_native_printer.dart';
 import '../services/receipt_printer_service.dart';
 import '../utils/toast.dart';
 import '../widgets/label_canvas.dart';
@@ -402,9 +404,11 @@ class _SettingsScreenState extends State<SettingsScreen>
         context,
         mode == 'pdf'
             ? 'Установлена обычная печать (PDF с диалогом)'
-            : mode == 'pdf_direct'
+            :         mode == 'pdf_direct'
             ? 'Установлена прямая печать PDF (без диалога)'
-            : 'Установлена RAW печать',
+            : mode == 'native'
+                ? 'Установлена нативная печать Windows (GDI)'
+                : 'Установлена RAW печать',
       );
     }
   }
@@ -430,6 +434,42 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   /// Печатает тестовый чек на текущий выбранный RAW-принтер с текущими
   /// настройками кодировки/преамбулы (даже если они ещё не сохранены).
+  Future<void> _testNativePrint() async {
+    final printerName = _selectedPrinterName;
+    if (printerName == null || printerName.isEmpty) {
+      if (mounted) {
+        showToast(context, 'Сначала выберите принтер');
+      }
+      return;
+    }
+    try {
+      await ReceiptNativePrinter.printReceipt(
+        printerName: printerName,
+        saleId: 0,
+        cashierName: 'Test',
+        items: [
+          CartItem(
+            productId: 1,
+            name: 'Тестовая позиция',
+            price: 1000,
+            quantity: 1,
+            unit: 'pcs',
+          ),
+        ],
+        total: 1000,
+        totalQty: 1,
+        dateTime: DateTime.now(),
+      );
+      if (mounted) {
+        showToast(context, 'Тест native отправлен на «$printerName»');
+      }
+    } catch (e) {
+      if (mounted) {
+        showToast(context, 'Ошибка тест-печати native: $e');
+      }
+    }
+  }
+
   Future<void> _testRawPrint() async {
     final printerName = _selectedPrinterName;
     if (printerName == null || printerName.isEmpty) {
@@ -566,6 +606,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                         value: 'pdf_direct',
                         child: Text('PDF Direct (без диалога)'),
                       ),
+                      DropdownMenuItem(
+                        value: 'native',
+                        child: Text('Windows Native (GDI, без RAW/PDF)'),
+                      ),
                     ],
                     onChanged: (v) {
                       if (v != null) _savePrintMode(v);
@@ -630,10 +674,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ],
                     const SizedBox(height: 12),
                   ],
-                  if ((_printMode == 'raw' || _printMode == 'pdf_direct') &&
-                      !Platform.isWindows)
+                  if (_printMode != 'pdf' && !Platform.isWindows)
                     Text(
-                      'RAW и PDF Direct печать доступны только на Windows. Используйте PDF печать с диалогом.',
+                      'RAW, PDF Direct и Windows Native доступны только на Windows. '
+                      'Используйте PDF печать с диалогом.',
                       style: TextStyle(color: AppColors.muted, fontSize: 13),
                     )
                   else if (_printMode == 'raw' && _isLoading)
@@ -671,17 +715,18 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ),
                     ),
                   ]
-                  else if (_printMode == 'pdf_direct')
+                  else if (_printMode == 'pdf_direct' || _printMode == 'native')
                     DropdownButtonFormField<String>(
                       value: _printers.contains(_selectedPrinterName)
                           ? _selectedPrinterName
                           : (_printers.isNotEmpty ? _printers.first : null),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Принтер для печати',
-                        border: OutlineInputBorder(),
-                        helperText:
-                            'В драйвере принтера укажите бумагу 80 мм. '
-                            'PDF масштабируется под печатную область (fit).',
+                        border: const OutlineInputBorder(),
+                        helperText: _printMode == 'native'
+                            ? 'В драйвере укажите бумагу 80 мм. Чек рисуется как изображение (GDI).'
+                            : 'В драйвере принтера укажите бумагу 80 мм. '
+                                'PDF масштабируется под печатную область (fit).',
                       ),
                       items: [
                         const DropdownMenuItem(
@@ -698,8 +743,21 @@ class _SettingsScreenState extends State<SettingsScreen>
                             .toList(),
                       ],
                       onChanged: (v) => _savePrinter(v),
-                    )
-                  else
+                    ),
+                  if (_printMode == 'native') ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: _printers.isEmpty ? null : _testNativePrint,
+                        icon: const Icon(Icons.print, size: 18),
+                        label: const Text('Тест печати (Native)'),
+                      ),
+                    ),
+                  ],
+                  if (_printMode != 'raw' &&
+                      _printMode != 'pdf_direct' &&
+                      _printMode != 'native')
                     Text(
                       ' ',
                       style: TextStyle(color: AppColors.muted, fontSize: 13),

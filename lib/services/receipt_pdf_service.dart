@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../models/cart_item.dart';
+import '../utils/receipt_text_wrap.dart';
 
 /// Формирует чек в формате PDF (80мм по ширине) для сохранения в файл.
 class ReceiptPdfService {
@@ -157,28 +157,139 @@ class ReceiptPdfService {
     );
   }
 
-  /// Высота страницы (мм): должна быть **не меньше** реального Column.
-  /// При занижении pdf обрезает низ (итоги, дата, «Спасибо») — остаётся белое поле.
-  static double _estimateReceiptHeightMm(List<CartItem> items) {
-    // Шапка + заголовок таблицы + низ чека + поля страницы.
-    const fixedMm = 36.0 + 7.0 + 36.0 + (16.0 * 25.4 / 72.0);
-    // Каждая позиция: padding ячеек + FittedBox в числовых колонках.
-    const mmPerItemRow = 8.0;
-    const charsPerLine = 12;
-    const mmPerExtraNameLine = 3.5;
+  static const double _marginTopPt = 8;
+  static const double _marginBottomPt = 8;
 
-    var rowsMm = items.isEmpty ? mmPerItemRow : 0.0;
-    for (final item in items) {
-      final nameLen = item.name.trim().length;
-      final lines = nameLen == 0
-          ? 1
-          : math.min(14, (nameLen / charsPerLine).ceil());
-      rowsMm += mmPerItemRow + math.max(0, lines - 1) * mmPerExtraNameLine;
+  /// Примерная высота чека.
+  /// Важно: высота должна быть конечной, не double.infinity.
+  static double _receiptHeightPt(int itemLineCount) {
+    const double headerHeight = 72;
+    const double tableHeaderHeight = 18;
+    const double itemRowHeight = 20;
+    const double footerHeight = 95;
+
+    final height = headerHeight +
+        tableHeaderHeight +
+        (itemLineCount * itemRowHeight) +
+        footerHeight +
+        _marginTopPt +
+        _marginBottomPt;
+
+    return height < 220 ? 220 : height;
+  }
+
+  static PdfPageFormat _receiptPageFormat(int itemLineCount) {
+    return PdfPageFormat(
+      _pageWidthPt,
+      _receiptHeightPt(itemLineCount),
+      marginLeft: _horizontalMarginPt,
+      marginRight: _horizontalMarginPt,
+      marginTop: _marginTopPt,
+      marginBottom: _marginBottomPt,
+    );
+  }
+
+  static pw.TableRow _tableHeaderRow() {
+    return pw.TableRow(
+      children: [
+        pw.Padding(
+          padding: _itemNoPad.copyWith(top: 2, bottom: 2, right: 1),
+          child: pw.Text(
+            '№',
+            style: _headerStyle,
+            textAlign: pw.TextAlign.left,
+            maxLines: 1,
+            softWrap: false,
+          ),
+        ),
+        pw.Padding(
+          padding: _nameCellPad,
+          child: pw.Text(
+            'Наименование',
+            style: _headerStyle,
+            textAlign: pw.TextAlign.left,
+            maxLines: 1,
+            softWrap: false,
+          ),
+        ),
+        pw.Padding(
+          padding: _numCellPad,
+          child: _fittedRightText('К-во', style: _headerStyle),
+        ),
+        pw.Padding(
+          padding: _numCellPad,
+          child: _fittedRightText('Цена', style: _headerStyle),
+        ),
+        pw.Padding(
+          padding: _numCellPad,
+          child: _fittedRightText('Сумма', style: _headerStyle),
+        ),
+      ],
+    );
+  }
+
+  /// Строки позиций: перенос названия как в RAW, по строке на [TableRow].
+  static List<pw.TableRow> _buildItemTableRows(List<CartItem> items) {
+    final rows = <pw.TableRow>[];
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      final no = '${i + 1}';
+      final nameLines = wrapReceiptText(item.name, receiptNameColumnChars);
+      final qty = item.unit == 'pcs'
+          ? item.quantity.toInt().toString()
+          : item.quantity.toStringAsFixed(2);
+      final priceStr = _formatSum(item.price);
+      final sumStr = _formatSum(item.total);
+
+      for (var li = 0; li < nameLines.length; li++) {
+        final isFirst = li == 0;
+        rows.add(
+          pw.TableRow(
+            children: [
+              pw.Padding(
+                padding: _itemNoPad,
+                child: pw.Text(
+                  isFirst ? no : '',
+                  style: _rowStyle,
+                  textAlign: pw.TextAlign.left,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              ),
+              pw.Padding(
+                padding: _itemNamePad,
+                child: pw.Text(
+                  nameLines[li],
+                  style: _rowStyle,
+                  textAlign: pw.TextAlign.left,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              ),
+              pw.Padding(
+                padding: _itemNumPad,
+                child: isFirst
+                    ? _fittedRightText(qty, style: _rowStyle)
+                    : pw.SizedBox.shrink(),
+              ),
+              pw.Padding(
+                padding: _itemNumPad,
+                child: isFirst
+                    ? _fittedRightText(priceStr, style: _rowStyle)
+                    : pw.SizedBox.shrink(),
+              ),
+              pw.Padding(
+                padding: _itemNumPad,
+                child: isFirst
+                    ? _fittedRightText(sumStr, style: _rowStyle)
+                    : pw.SizedBox.shrink(),
+              ),
+            ],
+          ),
+        );
+      }
     }
-
-    // Запас на погрешность вёрстки таблицы (лучше чуть длиннее лист, чем обрезка).
-    const safetyMm = 12.0;
-    return (fixedMm + rowsMm + safetyMm).clamp(115.0, 2000.0);
+    return rows;
   }
 
   static String _formatSum(double v) {
@@ -231,19 +342,11 @@ class ReceiptPdfService {
         '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
         '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
 
-    final pageFormat = PdfPageFormat(
-      _pageWidthPt,
-      _estimateReceiptHeightMm(items) * PdfPageFormat.mm,
-    );
-    const margin = pw.EdgeInsets.symmetric(
-      horizontal: _horizontalMarginPt,
-      vertical: 8,
-    );
+    final itemTableRows = _buildItemTableRows(items);
 
     pdf.addPage(
       pw.Page(
-        pageFormat: pageFormat,
-        margin: margin,
+        pageFormat: _receiptPageFormat(itemTableRows.length),
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -281,97 +384,8 @@ class ReceiptPdfService {
                 columnWidths: _receiptColumnWidths,
                 defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
                 children: [
-                  pw.TableRow(
-                    children: [
-                      pw.Padding(
-                        padding: _itemNoPad.copyWith(
-                          top: 2,
-                          bottom: 2,
-                          right: 1,
-                        ),
-                        child: pw.Text(
-                          '№',
-                          style: _headerStyle,
-                          textAlign: pw.TextAlign.left,
-                          maxLines: 1,
-                          softWrap: false,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: _nameCellPad,
-                        child: pw.Text(
-                          'Наименование',
-                          style: _headerStyle,
-                          textAlign: pw.TextAlign.left,
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: pw.TextOverflow.clip,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: _numCellPad,
-                        child: _fittedRightText('К-во', style: _headerStyle),
-                      ),
-                      pw.Padding(
-                        padding: _numCellPad,
-                        child: _fittedRightText('Цена', style: _headerStyle),
-                      ),
-                      pw.Padding(
-                        padding: _numCellPad,
-                        child: _fittedRightText('Сумма', style: _headerStyle),
-                      ),
-                    ],
-                  ),
-                  ...items.asMap().entries.map((e) {
-                    final i = e.key + 1;
-                    final item = e.value;
-                    final qty = item.unit == 'pcs'
-                        ? item.quantity.toInt().toString()
-                        : item.quantity.toStringAsFixed(2);
-                    return pw.TableRow(
-                      children: [
-                        pw.Padding(
-                          padding: _itemNoPad,
-                          child: pw.Text(
-                            '$i',
-                            style: _rowStyle,
-                            textAlign: pw.TextAlign.left,
-                            maxLines: 1,
-                            softWrap: false,
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: _itemNamePad,
-                          child: pw.Text(
-                            item.name,
-                            style: _rowStyle,
-                            textAlign: pw.TextAlign.left,
-                            maxLines: null,
-                            softWrap: true,
-                            overflow: pw.TextOverflow.clip,
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: _itemNumPad,
-                          child: _fittedRightText(qty, style: _rowStyle),
-                        ),
-                        pw.Padding(
-                          padding: _itemNumPad,
-                          child: _fittedRightText(
-                            _formatSum(item.price),
-                            style: _rowStyle,
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: _itemNumPad,
-                          child: _fittedRightText(
-                            _formatSum(item.total),
-                            style: _rowStyle,
-                          ),
-                        ),
-                      ],
-                    );
-                  }),
+                  _tableHeaderRow(),
+                  ...itemTableRows,
                 ],
               ),
               pw.SizedBox(height: 6),

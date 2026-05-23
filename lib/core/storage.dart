@@ -92,10 +92,11 @@ class Storage {
     }
   }
 
-  /// Тип печати: 'raw', 'pdf' или 'pdf_direct'. По умолчанию 'raw'.
+  /// Тип печати: 'raw', 'pdf', 'pdf_direct' или 'native'. По умолчанию 'raw'.
   /// - 'raw' - RAW печать на термопринтер
   /// - 'pdf' - обычная печать через системный диалог
   /// - 'pdf_direct' - прямая печать PDF без диалога
+  /// - 'native' - прямая печать через Windows GDI (растр, без RAW/PDF)
   String get receiptPrintMode => _prefs.getString(_keyReceiptPrintMode) ?? 'raw';
   Future<void> setReceiptPrintMode(String mode) async {
     await _prefs.setString(_keyReceiptPrintMode, mode);
