@@ -36,9 +36,15 @@ class ReceiptPrinterService {
     return s.padRight(width);
   }
 
-  static String _padLeft(String s, int width) {
-    if (s.length >= width) return s.substring(0, width);
-    return s.padLeft(width);
+  /// Строка итогов: key слева, value справа на всю ширину чека.
+  static String _footerKeyValueLine(String key, String value) {
+    final right = value;
+    if (right.length >= _lineWidth) {
+      return right.substring(0, _lineWidth);
+    }
+    final maxKeyLen = _lineWidth - right.length;
+    final left = key.length > maxKeyLen ? key.substring(0, maxKeyLen) : key;
+    return left.padRight(_lineWidth - right.length) + right;
   }
 
   static String _center(String s, int width) {
@@ -354,22 +360,21 @@ class ReceiptPrinterService {
 
     _addSeparator(buf);
 
-    // Итого по количеству
     final totalQtyStr = _formatQty(totalQty);
     _addLine(
       buf,
-      _padRight('', colNo) +
-          _padRight('ОБЩЕЕ КОЛИЧЕСТВО', colName) +
-          _padRight(totalQtyStr, colQty) +
-          _padRight('', colPrice) +
-          _padRight('', colSum),
+      _footerKeyValueLine('Общее количество товаров', totalQtyStr),
       bold: true,
       rawEncoding: rawEncoding,
     );
 
-    // Итоговая сумма
     final totalStr = _formatSum(total);
-    _addLine(buf, 'ИТОГО' + _padLeft(totalStr, _lineWidth - 5), bold: true, rawEncoding: rawEncoding);
+    _addLine(
+      buf,
+      _footerKeyValueLine('Итоговая сумма', totalStr),
+      bold: true,
+      rawEncoding: rawEncoding,
+    );
 
     // Дата и время
     final dtStr =

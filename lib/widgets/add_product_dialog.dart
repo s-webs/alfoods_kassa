@@ -13,11 +13,14 @@ class AddProductDialog extends StatefulWidget {
     required this.apiService,
     this.onAddProduct,
     this.onAddSet,
+    this.activeOnly = true,
   });
 
   final ApiService apiService;
   final void Function(Product)? onAddProduct;
   final void Function(ProductSet)? onAddSet;
+  /// When false, inactive products and sets are included (e.g. cashier).
+  final bool activeOnly;
 
   @override
   State<AddProductDialog> createState() => _AddProductDialogState();
@@ -93,7 +96,7 @@ class _AddProductDialogState extends State<AddProductDialog>
     }
     final result = await widget.apiService.getProductsPaginated(
       page: reset ? 1 : _productPage + 1,
-      active: true,
+      active: widget.activeOnly ? true : null,
       search: _search,
     );
     if (!mounted) return;
@@ -120,7 +123,7 @@ class _AddProductDialogState extends State<AddProductDialog>
     }
     final result = await widget.apiService.getSetsPaginated(
       page: reset ? 1 : _setPage + 1,
-      active: true,
+      active: widget.activeOnly ? true : null,
       search: _search,
     );
     if (!mounted) return;

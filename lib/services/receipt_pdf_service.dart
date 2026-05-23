@@ -11,45 +11,174 @@ import '../models/cart_item.dart';
 class ReceiptPdfService {
   static const String _companyName = 'Almaty Foods';
 
-  /// Высота страницы (полная, pt→мм ниже): должна быть близка к реальному Column,
-  /// иначе под «Спасибо» остаётся пустой хвост.
-  static double _estimateReceiptHeightMm(List<CartItem> items) {
-    // Верх: логотип-текст, кассир, № чека, разделитель (см. build ниже).
-    const topBlockMm = 34.0;
-    const tableHeaderRowMm = 5.5;
-    // Низ: разделитель, таблица итогов, ИТОГО, отступ, дата, «Спасибо» + крошечный запас.
-    const bottomBlockMm = 23.0;
-    const safetyMm = 1.0;
-    // Колонка названия шире № — больше символов в строке, чем в старых 11.
-    const charsPerLine = 13;
-    const mmPerNameLine = 3.0;
-    const minNameBlockMm = 3.8;
-    // Соответствует padding vertical: 6 у ячеек строк (~4.2 мм на строку позиций).
-    const rowVerticalPadMm = 4.3;
+  /// Ширина листа 80 мм (pt).
+  static final double _pageWidthPt = PdfPageFormat.roll80.width;
 
-    var rowsMm = 0.0;
+  /// Горизонтальные поля страницы (pt), симметрично.
+  static const double _horizontalMarginPt = 6;
+
+  // Доли как в RAW-чеке (~48 символов): 3+20+5+8+8, с запасом под «9 999 999».
+  // Сумма фиксированных колонок + flex «Наименование» укладывается в
+  // _pageWidthPt - 2 * _horizontalMarginPt.
+  static const double _colNoPt = 14;
+  static const double _colQtyPt = 22;
+  static const double _colPricePt = 46;
+  static const double _colSumPt = 50;
+
+  static Map<int, pw.TableColumnWidth> get _receiptColumnWidths => {
+        0: const pw.FixedColumnWidth(_colNoPt),
+        1: const pw.FlexColumnWidth(2),
+        2: const pw.FixedColumnWidth(_colQtyPt),
+        3: const pw.FixedColumnWidth(_colPricePt),
+        4: const pw.FixedColumnWidth(_colSumPt),
+      };
+
+  static const pw.EdgeInsets _nameCellPad =
+      pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2);
+  static const pw.EdgeInsets _numCellPad =
+      pw.EdgeInsets.symmetric(horizontal: 1, vertical: 2);
+  static const pw.EdgeInsets _itemNamePad =
+      pw.EdgeInsets.symmetric(horizontal: 2, vertical: 4);
+  static const pw.EdgeInsets _itemNumPad =
+      pw.EdgeInsets.symmetric(horizontal: 1, vertical: 4);
+  static const pw.EdgeInsets _itemNoPad =
+      pw.EdgeInsets.only(left: 0, right: 1, top: 4, bottom: 4);
+
+  static pw.TextStyle get _headerStyle => pw.TextStyle(
+        fontSize: 9,
+        fontWeight: pw.FontWeight.bold,
+      );
+
+  static pw.TextStyle get _rowStyle => pw.TextStyle(
+        fontSize: 9,
+        fontWeight: pw.FontWeight.bold,
+      );
+
+  static pw.TextStyle get _footerStyle => pw.TextStyle(
+        fontSize: 9,
+        fontWeight: pw.FontWeight.bold,
+      );
+
+  static pw.TextStyle get _footerTotalStyle => pw.TextStyle(
+        fontSize: 10,
+        fontWeight: pw.FontWeight.bold,
+      );
+
+  static pw.EdgeInsets get _footerPadNo =>
+      _itemNoPad.copyWith(top: 0, bottom: 0);
+
+  static pw.EdgeInsets get _footerValuePad =>
+      _itemNumPad.copyWith(top: 0, bottom: 0);
+
+  /// Итоги: отдельная таблица key | value (левый край как у колонки «№»).
+  static pw.Widget _footerTable({
+    required double totalQty,
+    required double total,
+  }) {
+    return pw.Table(
+      columnWidths: const {
+        0: pw.FlexColumnWidth(3),
+        1: pw.FlexColumnWidth(2),
+      },
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+      children: [
+        pw.TableRow(
+          children: [
+            pw.Padding(
+              padding: _footerPadNo,
+              child: pw.Text(
+                'Общее количество товаров',
+                style: _footerStyle,
+                textAlign: pw.TextAlign.left,
+              ),
+            ),
+            pw.Padding(
+              padding: _footerValuePad,
+              child: pw.Align(
+                alignment: pw.Alignment.centerRight,
+                child: pw.Text(
+                  _formatQty(totalQty),
+                  style: _footerStyle,
+                  textAlign: pw.TextAlign.right,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              ),
+            ),
+          ],
+        ),
+        pw.TableRow(
+          children: [
+            pw.Padding(
+              padding: _footerPadNo,
+              child: pw.Text(
+                'Итоговая сумма',
+                style: _footerTotalStyle,
+                textAlign: pw.TextAlign.left,
+              ),
+            ),
+            pw.Padding(
+              padding: _footerValuePad,
+              child: pw.Align(
+                alignment: pw.Alignment.centerRight,
+                child: pw.Text(
+                  _formatSum(total),
+                  style: _footerTotalStyle,
+                  textAlign: pw.TextAlign.right,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Правый столбец с числом: при нехватке места уменьшает шрифт, не обрезает.
+  static pw.Widget _fittedRightText(
+    String text, {
+    required pw.TextStyle style,
+    pw.TextAlign textAlign = pw.TextAlign.right,
+  }) {
+    return pw.FittedBox(
+      fit: pw.BoxFit.scaleDown,
+      alignment: textAlign == pw.TextAlign.right
+          ? pw.Alignment.centerRight
+          : pw.Alignment.centerLeft,
+      child: pw.Text(
+        text,
+        style: style,
+        textAlign: textAlign,
+        maxLines: 1,
+        softWrap: false,
+      ),
+    );
+  }
+
+  /// Высота страницы (мм): должна быть **не меньше** реального Column.
+  /// При занижении pdf обрезает низ (итоги, дата, «Спасибо») — остаётся белое поле.
+  static double _estimateReceiptHeightMm(List<CartItem> items) {
+    // Шапка + заголовок таблицы + низ чека + поля страницы.
+    const fixedMm = 36.0 + 7.0 + 36.0 + (16.0 * 25.4 / 72.0);
+    // Каждая позиция: padding ячеек + FittedBox в числовых колонках.
+    const mmPerItemRow = 8.0;
+    const charsPerLine = 12;
+    const mmPerExtraNameLine = 3.5;
+
+    var rowsMm = items.isEmpty ? mmPerItemRow : 0.0;
     for (final item in items) {
       final nameLen = item.name.trim().length;
       final lines = nameLen == 0
           ? 1
           : math.min(14, (nameLen / charsPerLine).ceil());
-      final nameH = math.max(minNameBlockMm, lines * mmPerNameLine);
-      rowsMm += nameH + rowVerticalPadMm;
-    }
-    if (items.isEmpty) {
-      rowsMm = minNameBlockMm + rowVerticalPadMm;
+      rowsMm += mmPerItemRow + math.max(0, lines - 1) * mmPerExtraNameLine;
     }
 
-    // Поля pw.Page vertical 8+8 pt — вычитаются из высоты листа, иначе обрежется низ.
-    const pageVerticalMarginMm = 16.0 * 25.4 / 72.0;
-
-    final h = topBlockMm +
-        tableHeaderRowMm +
-        rowsMm +
-        bottomBlockMm +
-        safetyMm +
-        pageVerticalMarginMm;
-    return h.clamp(88.0, 2000.0);
+    // Запас на погрешность вёрстки таблицы (лучше чуть длиннее лист, чем обрезка).
+    const safetyMm = 12.0;
+    return (fixedMm + rowsMm + safetyMm).clamp(115.0, 2000.0);
   }
 
   static String _formatSum(double v) {
@@ -103,11 +232,13 @@ class ReceiptPdfService {
         '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
 
     final pageFormat = PdfPageFormat(
-      PdfPageFormat.roll80.width,
+      _pageWidthPt,
       _estimateReceiptHeightMm(items) * PdfPageFormat.mm,
     );
-    const margin =
-        pw.EdgeInsets.only(left: 6, right: 13, top: 8, bottom: 8);
+    const margin = pw.EdgeInsets.symmetric(
+      horizontal: _horizontalMarginPt,
+      vertical: 8,
+    );
 
     pdf.addPage(
       pw.Page(
@@ -147,42 +278,30 @@ class ReceiptPdfService {
               pw.Divider(thickness: 1),
               pw.SizedBox(height: 4),
               pw.Table(
-                columnWidths: {
-                  0: const pw.FixedColumnWidth(20), // №
-                  1: const pw.FlexColumnWidth(3), // Наименование — единственная колонка с переносами
-                  2: const pw.FixedColumnWidth(24), // К-во
-                  3: const pw.FixedColumnWidth(26), // Цена
-                  4: const pw.FixedColumnWidth(40), // Сумма (приоритет по ширине)
-                },
+                columnWidths: _receiptColumnWidths,
                 defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
                 children: [
                   pw.TableRow(
                     children: [
                       pw.Padding(
-                        padding: const pw.EdgeInsets.only(right: 2, bottom: 2),
+                        padding: _itemNoPad.copyWith(
+                          top: 2,
+                          bottom: 2,
+                          right: 1,
+                        ),
                         child: pw.Text(
                           '№',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
+                          style: _headerStyle,
                           textAlign: pw.TextAlign.left,
                           maxLines: 1,
                           softWrap: false,
-                          overflow: pw.TextOverflow.clip,
                         ),
                       ),
                       pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 2,
-                          vertical: 2,
-                        ),
+                        padding: _nameCellPad,
                         child: pw.Text(
                           'Наименование',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
+                          style: _headerStyle,
                           textAlign: pw.TextAlign.left,
                           maxLines: 1,
                           softWrap: false,
@@ -190,52 +309,16 @@ class ReceiptPdfService {
                         ),
                       ),
                       pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 2,
-                          vertical: 2,
-                        ),
-                        child: pw.Text(
-                          'К-во',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: pw.TextOverflow.clip,
-                        ),
+                        padding: _numCellPad,
+                        child: _fittedRightText('К-во', style: _headerStyle),
                       ),
                       pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 2,
-                          vertical: 2,
-                        ),
-                        child: pw.Text(
-                          'Цена',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: pw.TextOverflow.clip,
-                        ),
+                        padding: _numCellPad,
+                        child: _fittedRightText('Цена', style: _headerStyle),
                       ),
                       pw.Padding(
-                        padding: const pw.EdgeInsets.only(left: 2, bottom: 2),
-                        child: pw.Text(
-                          'Сумма',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: pw.TextOverflow.clip,
-                        ),
+                        padding: _numCellPad,
+                        child: _fittedRightText('Сумма', style: _headerStyle),
                       ),
                     ],
                   ),
@@ -245,32 +328,23 @@ class ReceiptPdfService {
                     final qty = item.unit == 'pcs'
                         ? item.quantity.toInt().toString()
                         : item.quantity.toStringAsFixed(2);
-                    const cellPad = pw.EdgeInsets.symmetric(
-                      horizontal: 2,
-                      vertical: 6,
-                    );
-                    final numStyle = pw.TextStyle(
-                      fontSize: 9,
-                      fontWeight: pw.FontWeight.bold,
-                    );
                     return pw.TableRow(
                       children: [
                         pw.Padding(
-                          padding: cellPad.copyWith(right: 2),
+                          padding: _itemNoPad,
                           child: pw.Text(
                             '$i',
-                            style: numStyle,
+                            style: _rowStyle,
                             textAlign: pw.TextAlign.left,
                             maxLines: 1,
                             softWrap: false,
-                            overflow: pw.TextOverflow.clip,
                           ),
                         ),
                         pw.Padding(
-                          padding: cellPad,
+                          padding: _itemNamePad,
                           child: pw.Text(
                             item.name,
-                            style: numStyle,
+                            style: _rowStyle,
                             textAlign: pw.TextAlign.left,
                             maxLines: null,
                             softWrap: true,
@@ -278,36 +352,21 @@ class ReceiptPdfService {
                           ),
                         ),
                         pw.Padding(
-                          padding: cellPad,
-                          child: pw.Text(
-                            qty,
-                            style: numStyle,
-                            textAlign: pw.TextAlign.right,
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: pw.TextOverflow.clip,
-                          ),
+                          padding: _itemNumPad,
+                          child: _fittedRightText(qty, style: _rowStyle),
                         ),
                         pw.Padding(
-                          padding: cellPad,
-                          child: pw.Text(
+                          padding: _itemNumPad,
+                          child: _fittedRightText(
                             _formatSum(item.price),
-                            style: numStyle,
-                            textAlign: pw.TextAlign.right,
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: pw.TextOverflow.clip,
+                            style: _rowStyle,
                           ),
                         ),
                         pw.Padding(
-                          padding: cellPad,
-                          child: pw.Text(
+                          padding: _itemNumPad,
+                          child: _fittedRightText(
                             _formatSum(item.total),
-                            style: numStyle,
-                            textAlign: pw.TextAlign.right,
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: pw.TextOverflow.clip,
+                            style: _rowStyle,
                           ),
                         ),
                       ],
@@ -317,98 +376,9 @@ class ReceiptPdfService {
               ),
               pw.SizedBox(height: 6),
               pw.Divider(thickness: 1),
-              // После линии: строка "К-ВО", число в колонке количества.
-              pw.Table(
-                columnWidths: {
-                  0: const pw.FixedColumnWidth(0),
-                  1: const pw.FlexColumnWidth(3),
-                  2: const pw.FixedColumnWidth(24),
-                  3: const pw.FixedColumnWidth(26),
-                  4: const pw.FixedColumnWidth(40),
-                },
-                children: [
-                  pw.TableRow(
-                    children: [
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                        child: pw.Text(
-                          '',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textAlign: pw.TextAlign.left,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                        child: pw.Text(
-                          'ОБЩЕЕ КОЛИЧЕСТВО',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textAlign: pw.TextAlign.left,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                        child: pw.Text(
-                          _formatQty(totalQty),
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                        child: pw.Text(
-                          '',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                        child: pw.Text(
-                          '',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 2),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'ИТОГО',
-                    style: pw.TextStyle(
-                      fontSize: 10,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.Text(
-                    _formatSum(total),
-                    style: pw.TextStyle(
-                      fontSize: 10,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 14),
+              pw.SizedBox(height: 4),
+              _footerTable(totalQty: totalQty, total: total),
+              pw.SizedBox(height: 10),
               pw.Text(
                 dtStr,
                 textAlign: pw.TextAlign.center,

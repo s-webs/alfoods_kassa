@@ -664,19 +664,26 @@ class ApiService {
 
   /// Поиск товара по штрихкоду (для сканера). Возвращает null, если не найден.
   Future<Product?> getProductByBarcode(String barcode) async {
-    final list = await getProducts(active: true, barcode: barcode.trim());
+    final list = await getProducts(barcode: barcode.trim());
     return list.isEmpty ? null : list.first;
   }
 
   /// Resolve barcode to product or set in one request. Always fetches from API (no cache).
   /// Returns null if not found (404).
-  Future<BarcodeResolveResult?> resolveBarcode(String barcode) async {
+  Future<BarcodeResolveResult?> resolveBarcode(
+    String barcode, {
+    bool includeInactive = false,
+  }) async {
     final key = barcode.trim();
     if (key.isEmpty) return null;
     try {
+      final queryParams = <String, dynamic>{'barcode': key};
+      if (includeInactive) {
+        queryParams['include_inactive'] = true;
+      }
       final response = await _apiClient.dio.get(
         'api/barcode/resolve',
-        queryParameters: {'barcode': key},
+        queryParameters: queryParams,
       );
       final data = response.data as Map<String, dynamic>;
       final type = data['type'] as String?;
@@ -785,8 +792,22 @@ class ApiService {
 
   /// Поиск сета по штрихкоду. Возвращает null, если не найден.
   Future<ProductSet?> getSetByBarcode(String barcode) async {
-    final list = await getSets(active: true, barcode: barcode.trim());
+    final list = await getSets(barcode: barcode.trim());
     return list.isEmpty ? null : list.first;
+  }
+
+  /// Resolve barcode for cashier: includes inactive items; falls back to direct lookup.
+  Future<BarcodeResolveResult?> resolveBarcodeForCashier(String barcode) async {
+    final result = await resolveBarcode(barcode, includeInactive: true);
+    if (result != null) return result;
+
+    final product = await getProductByBarcode(barcode);
+    if (product != null) return BarcodeResolveResult.product(product);
+
+    final set = await getSetByBarcode(barcode);
+    if (set != null) return BarcodeResolveResult.set(set);
+
+    return null;
   }
 
   Future<ProductSet> createSet(Map<String, dynamic> data) async {

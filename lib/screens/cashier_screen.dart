@@ -456,6 +456,7 @@ class _CashierScreenState extends State<CashierScreen> {
       context: context,
       builder: (ctx) => AddProductDialog(
         apiService: widget.apiService,
+        activeOnly: false,
         onAddProduct: (p) => _addProduct(p),
         onAddSet: (s) => _addSet(s),
       ),
@@ -486,7 +487,7 @@ class _CashierScreenState extends State<CashierScreen> {
     if (_isBarcodeLoading || !mounted) return;
     setState(() => _isBarcodeLoading = true);
     try {
-      final result = await widget.apiService.resolveBarcode(barcode);
+      final result = await widget.apiService.resolveBarcodeForCashier(barcode);
       if (!mounted) return;
       if (result != null) {
         if (result.isProduct && result.product != null) {
