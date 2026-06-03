@@ -398,6 +398,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen>
       context: context,
       builder: (ctx) => AddProductDialog(
         apiService: widget.apiService,
+        activeOnly: false,
         onAddProduct: (p) => _addProductToSale(p),
         onAddSet: (s) => _addSetToSale(s),
       ),

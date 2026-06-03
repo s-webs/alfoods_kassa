@@ -19,7 +19,7 @@ class AddProductDialog extends StatefulWidget {
   final ApiService apiService;
   final void Function(Product)? onAddProduct;
   final void Function(ProductSet)? onAddSet;
-  /// When false, inactive products and sets are included (e.g. cashier).
+  /// When false, inactive products and sets are included (sales, cashier).
   final bool activeOnly;
 
   @override

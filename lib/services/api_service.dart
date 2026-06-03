@@ -291,18 +291,25 @@ class ApiService {
   // Один штрихкод в НКТ может соответствовать нескольким товарам (variants).
   // ---------------------------------------------------------------------------
 
-  /// Search NKT by product barcode. Returns variants list + cache flag.
-  /// Result map: { variants: List<Map>, variants_count: int, cached: bool, barcode: String }.
+  /// Search NKT by product barcode, name, or NTIN.
   Future<NktSearchResult> nktSearch(
     int productId, {
     String? barcode,
     bool forceFresh = false,
+    NktSearchMode? mode,
+    String? query,
+    bool? markNotFound,
   }) async {
     final data = <String, dynamic>{};
     if (barcode != null && barcode.trim().isNotEmpty) {
       data['barcode'] = barcode.trim();
     }
     if (forceFresh) data['force_fresh'] = true;
+    if (mode != null) data['mode'] = mode.apiValue;
+    if (query != null && query.trim().isNotEmpty) {
+      data['query'] = query.trim();
+    }
+    if (markNotFound != null) data['mark_not_found'] = markNotFound;
 
     final response = await _apiClient.dio.post(
       'api/products/$productId/nkt/search',
@@ -312,11 +319,26 @@ class ApiService {
     return NktSearchResult.fromJson(json);
   }
 
-  /// Link product to a specific NTIN from the latest cached search result.
-  Future<Product> nktLink(int productId, String ntin) async {
+  /// Link product to a specific NTIN from the latest search context.
+  Future<Product> nktLink(
+    int productId,
+    String ntin, {
+    NktSearchMode? mode,
+    String? query,
+    String? barcode,
+  }) async {
+    final data = <String, dynamic>{'ntin': ntin};
+    if (mode != null) data['mode'] = mode.apiValue;
+    if (query != null && query.trim().isNotEmpty) {
+      data['query'] = query.trim();
+    }
+    if (barcode != null && barcode.trim().isNotEmpty) {
+      data['barcode'] = barcode.trim();
+    }
+
     final response = await _apiClient.dio.post(
       'api/products/$productId/nkt/link',
-      data: {'ntin': ntin},
+      data: data,
     );
     final json = response.data as Map<String, dynamic>;
     final productJson = json['product'] as Map<String, dynamic>;
@@ -1164,8 +1186,20 @@ class ApiService {
   }
 
   // Product Receipts
-  Future<List<ProductReceipt>> getProductReceipts() async {
-    final response = await _apiClient.dio.get('api/product-receipts');
+  Future<List<ProductReceipt>> getProductReceipts({
+    int? supplierId,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    final query = <String, dynamic>{};
+    if (supplierId != null) query['supplier_id'] = supplierId;
+    if (dateFrom != null && dateFrom.isNotEmpty) query['date_from'] = dateFrom;
+    if (dateTo != null && dateTo.isNotEmpty) query['date_to'] = dateTo;
+
+    final response = await _apiClient.dio.get(
+      'api/product-receipts',
+      queryParameters: query.isEmpty ? null : query,
+    );
     final list = response.data as List<dynamic>;
     return list
         .map((e) => ProductReceipt.fromJson(e as Map<String, dynamic>))
@@ -1660,6 +1694,34 @@ class NktVariant {
   }
 }
 
+enum NktSearchMode {
+  barcode,
+  byName,
+  ntin;
+
+  String get apiValue => switch (this) {
+        NktSearchMode.barcode => 'barcode',
+        NktSearchMode.byName => 'name',
+        NktSearchMode.ntin => 'ntin',
+      };
+
+  static NktSearchMode? fromApi(String? value) {
+    if (value == null || value.isEmpty) return null;
+    return switch (value) {
+      'name' => NktSearchMode.byName,
+      'ntin' => NktSearchMode.ntin,
+      'barcode' => NktSearchMode.barcode,
+      _ => NktSearchMode.barcode,
+    };
+  }
+
+  String get labelRu => switch (this) {
+        NktSearchMode.barcode => 'По штрихкоду',
+        NktSearchMode.byName => 'По наименованию',
+        NktSearchMode.ntin => 'По NTIN',
+      };
+}
+
 class NktSearchResult {
   NktSearchResult({
     required this.variants,
@@ -1668,6 +1730,8 @@ class NktSearchResult {
     this.barcode,
     this.barcodesTried = const [],
     this.matchedBarcode,
+    this.searchMode,
+    this.searchQuery,
   });
 
   final List<NktVariant> variants;
@@ -1676,6 +1740,8 @@ class NktSearchResult {
   final String? barcode;
   final List<String> barcodesTried;
   final String? matchedBarcode;
+  final NktSearchMode? searchMode;
+  final String? searchQuery;
 
   factory NktSearchResult.fromJson(Map<String, dynamic> json) {
     final raw = json['variants'] as List<dynamic>? ?? const [];
@@ -1692,6 +1758,8 @@ class NktSearchResult {
       barcode: json['barcode']?.toString(),
       barcodesTried: barcodesTried,
       matchedBarcode: json['matched_barcode']?.toString(),
+      searchMode: NktSearchMode.fromApi(json['search_mode']?.toString()),
+      searchQuery: json['search_query']?.toString(),
     );
   }
 }

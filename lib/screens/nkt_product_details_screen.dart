@@ -9,6 +9,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/theme.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../utils/nkt_search_flow.dart';
 import '../utils/product_search.dart';
 import '../utils/toast.dart';
 import '../widgets/nkt_product_request_form.dart';
@@ -243,32 +244,56 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
     return null;
   }
 
+  void _applyNktSearchResult(NktSearchResult result) {
+    setState(() {
+      _nktSearchResult = result;
+      _nktSearching = false;
+      _pickedNktNtin =
+          _product != null ? _defaultPickedNtin(result, _product!) : null;
+    });
+  }
+
   Future<NktSearchResult?> _searchNktVariants({bool forceFresh = false}) async {
-    if (_effectiveBarcode == null) {
-      showToast(context, 'У товара нет штрихкода');
+    final p = _product;
+    if (p == null) return null;
+    if (_effectiveBarcode == null && p.name.trim().isEmpty) {
+      showToast(context, 'Укажите штрихкод или наименование');
       return null;
     }
     setState(() => _nktSearching = true);
     try {
-      final result = await widget.apiService.nktSearch(
-        widget.productId,
-        forceFresh: forceFresh,
-      );
+      NktSearchResult result;
+      if (_effectiveBarcode != null && productHasScannableBarcode(p)) {
+        result = await NktSearchFlow.searchWithBarcodeFallback(
+          api: widget.apiService,
+          productId: widget.productId,
+          product: p,
+          forceFresh: forceFresh,
+        ) ?? NktSearchResult(
+          variants: [],
+          variantsCount: 0,
+          cached: false,
+        );
+      } else {
+        result = await NktSearchFlow.searchByName(
+              api: widget.apiService,
+              productId: widget.productId,
+              query: p.name,
+              forceFresh: forceFresh,
+            ) ??
+            NktSearchResult(
+              variants: [],
+              variantsCount: 0,
+              cached: false,
+            );
+      }
       if (!mounted) return null;
-      setState(() {
-        _nktSearchResult = result;
-        _nktSearching = false;
-        _pickedNktNtin =
-            _product != null ? _defaultPickedNtin(result, _product!) : null;
-      });
+      _applyNktSearchResult(result);
       return result;
-    } on DioException catch (e) {
+    } on NktSearchException catch (e) {
       if (!mounted) return null;
       setState(() => _nktSearching = false);
-      showToast(
-        context,
-        nktExtractDioError(e, fallback: 'Ошибка запроса в НКТ'),
-      );
+      showToast(context, e.message);
     } catch (_) {
       if (!mounted) return null;
       setState(() => _nktSearching = false);
@@ -289,14 +314,129 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
           setState(() => _product = refreshed);
         }
       } catch (_) {}
+      if (mounted) {
+        showToast(context, 'В НКТ ничего не найдено');
+      }
+    } else if (result.variants.length > 1 && mounted && _product != null) {
+      final pick = await showNktVariantPickerDialog(
+        context: context,
+        product: _product!,
+        result: result,
+        apiService: widget.apiService,
+        productId: widget.productId,
+      );
+      if (pick?.ntin != null) {
+        await _linkNkt(pick!.ntin!, searchResult: pick.searchResult ?? result);
+      }
     }
   }
 
-  Future<void> _linkNkt(String ntin) async {
+  Future<void> _runNktSearchByName() async {
+    final p = _product;
+    if (p == null) return;
+    final query = await NktSearchFlow.promptName(
+      context,
+      initialQuery: p.name,
+    );
+    if (query == null || !mounted) return;
+    setState(() => _nktSearching = true);
+    try {
+      final result = await NktSearchFlow.searchByName(
+        api: widget.apiService,
+        productId: widget.productId,
+        query: query,
+      );
+      if (!mounted) return;
+      if (result == null || result.variants.isEmpty) {
+        setState(() => _nktSearching = false);
+        showToast(context, 'По наименованию ничего не найдено');
+        return;
+      }
+      _applyNktSearchResult(result);
+      if (result.variants.length == 1 && mounted) {
+        final code = result.variants.first.ntinCode;
+        if (code != null && code.isNotEmpty) {
+          await _linkNkt(code, searchResult: result);
+        }
+      } else if (mounted) {
+        final pick = await showNktVariantPickerDialog(
+          context: context,
+          product: p,
+          result: result,
+          apiService: widget.apiService,
+          productId: widget.productId,
+        );
+        if (pick?.ntin != null) {
+          await _linkNkt(pick!.ntin!, searchResult: pick.searchResult ?? result);
+        }
+      }
+    } on NktSearchException catch (e) {
+      if (!mounted) return;
+      setState(() => _nktSearching = false);
+      showToast(context, e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _nktSearching = false);
+      showToast(context, 'Ошибка запроса в НКТ');
+    }
+  }
+
+  Future<void> _runNktSearchByNtin() async {
+    final ntin = await NktSearchFlow.promptNtin(context);
+    if (ntin == null || !mounted) return;
+    setState(() => _nktSearching = true);
+    try {
+      final result = await NktSearchFlow.searchByNtin(
+        api: widget.apiService,
+        productId: widget.productId,
+        ntin: ntin,
+      );
+      if (!mounted) return;
+      if (result == null || result.variants.isEmpty) {
+        setState(() => _nktSearching = false);
+        showToast(context, 'По NTIN ничего не найдено');
+        return;
+      }
+      _applyNktSearchResult(result);
+      if (result.variants.length == 1 && mounted) {
+        final code = result.variants.first.ntinCode;
+        if (code != null && code.isNotEmpty) {
+          await _linkNkt(code, searchResult: result);
+        }
+      } else if (mounted && _product != null) {
+        final pick = await showNktVariantPickerDialog(
+          context: context,
+          product: _product!,
+          result: result,
+          apiService: widget.apiService,
+          productId: widget.productId,
+        );
+        if (pick?.ntin != null) {
+          await _linkNkt(pick!.ntin!, searchResult: pick.searchResult ?? result);
+        }
+      }
+    } on NktSearchException catch (e) {
+      if (!mounted) return;
+      setState(() => _nktSearching = false);
+      showToast(context, e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _nktSearching = false);
+      showToast(context, 'Ошибка запроса в НКТ');
+    }
+  }
+
+  Future<void> _linkNkt(String ntin, {NktSearchResult? searchResult}) async {
     if (_nktLinking) return;
     setState(() => _nktLinking = true);
     try {
-      final updated = await widget.apiService.nktLink(widget.productId, ntin);
+      final sr = searchResult ?? _nktSearchResult;
+      final updated = await widget.apiService.nktLink(
+        widget.productId,
+        ntin,
+        mode: sr?.searchMode,
+        query: sr?.searchQuery,
+      );
       if (!mounted) return;
       _populateControllers(updated);
       setState(() {
@@ -718,9 +858,7 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
             ),
           ),
         _SectionCard(
-          title: _nktSearchResult != null
-              ? 'НКТ — варианты по штрихкоду (${_nktSearchResult!.variants.length})'
-              : 'НКТ — варианты по штрихкоду',
+          title: _nktVariantsSectionTitle(),
           child: _buildNktVariantsBlock(p),
         ),
         if (p.isLinkedToNkt) ...[
@@ -829,12 +967,23 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
     );
   }
 
+  String _nktVariantsSectionTitle() {
+    final result = _nktSearchResult;
+    final mode = result?.searchMode?.labelRu ?? 'штрихкоду';
+    if (result != null) {
+      return 'НКТ — варианты ($mode, ${result.variants.length})';
+    }
+    return 'НКТ — поиск в каталоге';
+  }
+
   Widget _buildNktVariantsBlock(Product p) {
     final barcode = _effectiveBarcode;
     final result = _nktSearchResult;
     final canLink = _pickedNktNtin != null &&
         _pickedNktNtin!.isNotEmpty &&
         p.nktNtin != _pickedNktNtin;
+    final canSearchBarcode =
+        barcode != null && productHasScannableBarcode(p);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -849,9 +998,9 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
                 mono: barcode != null,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             FilledButton.icon(
-              onPressed: _nktSearching || _nktLinking || barcode == null
+              onPressed: _nktSearching || _nktLinking || !canSearchBarcode
                   ? null
                   : _runNktSearch,
               icon: _nktSearching
@@ -867,15 +1016,25 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
                       PhosphorIconsRegular.magnifyingGlass,
                       size: 18,
                     ),
-              label: Text(_nktSearching ? 'Поиск...' : 'Поиск'),
+              label: Text(_nktSearching ? 'Поиск...' : 'По штрихкоду'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              onPressed: _nktSearching || _nktLinking ? null : _runNktSearchByName,
+              child: const Text('По наименованию'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              onPressed: _nktSearching || _nktLinking ? null : _runNktSearchByNtin,
+              child: const Text('По NTIN'),
             ),
           ],
         ),
-        if (barcode == null)
+        if (!canSearchBarcode)
           const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Text(
-              'Укажите штрихкод, чтобы искать в НКТ',
+              'Без штрихкода используйте «По наименованию» или «По NTIN»',
               style: TextStyle(color: AppColors.muted, fontSize: 13),
             ),
           ),
@@ -912,9 +1071,9 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
             ),
           const SizedBox(height: 12),
           if (result.variants.isEmpty)
-            const Text(
-              'По штрихкоду варианты не найдены',
-              style: TextStyle(color: AppColors.muted, fontSize: 13),
+            Text(
+              'Варианты не найдены (${result.searchMode?.labelRu ?? 'поиск'})',
+              style: const TextStyle(color: AppColors.muted, fontSize: 13),
             )
           else ...[
             for (final v in result.variants)
@@ -937,7 +1096,10 @@ class _NktProductDetailsScreenState extends State<NktProductDetailsScreen>
                 child: FilledButton.icon(
                   onPressed: _nktLinking
                       ? null
-                      : () => _linkNkt(_pickedNktNtin!),
+                      : () => _linkNkt(
+                          _pickedNktNtin!,
+                          searchResult: result,
+                        ),
                   icon: _nktLinking
                       ? const SizedBox(
                           width: 16,

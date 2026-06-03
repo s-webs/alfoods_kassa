@@ -6,12 +6,22 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/theme.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../utils/nkt_search_flow.dart';
 import '../utils/product_search.dart';
 import '../utils/nkt_request_ui.dart';
 import '../utils/toast.dart';
 import '../widgets/nkt_request_actions_panel.dart';
+import '../widgets/nkt_variants_ui.dart';
 
-enum _NktFilter { all, unlinked, linked, notFound, noBarcode, withRequest }
+enum _NktFilter {
+  all,
+  unlinked,
+  linked,
+  notFound,
+  noBarcode,
+  withRequest,
+  deactivated,
+}
 
 class NktSyncScreen extends StatefulWidget {
   const NktSyncScreen({super.key, required this.apiService});
@@ -90,35 +100,94 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
     }
   }
 
+  bool _matchesFilter(Product p, _NktFilter filter) {
+    switch (filter) {
+      case _NktFilter.all:
+        return true;
+      case _NktFilter.linked:
+        return p.isLinkedToNkt;
+      case _NktFilter.unlinked:
+        return !p.isLinkedToNkt &&
+            productHasScannableBarcode(p) &&
+            !p.isNktNotFound;
+      case _NktFilter.notFound:
+        return p.isNktNotFound;
+      case _NktFilter.noBarcode:
+        return !productHasScannableBarcode(p);
+      case _NktFilter.withRequest:
+        return p.hasNktRequest;
+      case _NktFilter.deactivated:
+        return p.nktIsDeactivated == true;
+    }
+  }
+
+  int _countForFilter(_NktFilter filter) {
+    if (filter == _NktFilter.all) return _products.length;
+    return _products.where((p) => _matchesFilter(p, filter)).length;
+  }
+
   List<Product> get _filtered {
     final q = _searchQuery.trim().toLowerCase();
     return _products.where((p) {
-      switch (_filter) {
-        case _NktFilter.linked:
-          if (!p.isLinkedToNkt) return false;
-          break;
-        case _NktFilter.unlinked:
-          // «Без привязки» — то, с чем реально можно работать:
-          // не привязано, есть штрихкод, и не помечено как «не найдено в НКТ».
-          if (p.isLinkedToNkt) return false;
-          if (!productHasScannableBarcode(p)) return false;
-          if (p.isNktNotFound) return false;
-          break;
-        case _NktFilter.notFound:
-          if (!p.isNktNotFound) return false;
-          break;
-        case _NktFilter.noBarcode:
-          if (productHasScannableBarcode(p)) return false;
-          break;
-        case _NktFilter.withRequest:
-          if (!p.hasNktRequest) return false;
-          break;
-        case _NktFilter.all:
-          break;
-      }
+      if (!_matchesFilter(p, _filter)) return false;
       if (q.isEmpty) return true;
       final ntin = (p.nktNtin ?? '').toLowerCase();
       return productMatchesQuery(p, q) || ntin.contains(q);
+    }).toList();
+  }
+
+  void _selectFilter(_NktFilter filter) {
+    setState(() => _filter = filter);
+  }
+
+  List<Widget> _buildFilterChips() {
+    const chips = <(_NktFilter, String)>[
+      (_NktFilter.all, 'Все'),
+      (_NktFilter.unlinked, 'Без привязки'),
+      (_NktFilter.linked, 'Привязаны'),
+      (_NktFilter.notFound, 'Не найдены'),
+      (_NktFilter.noBarcode, 'Без штрихкода'),
+      (_NktFilter.withRequest, 'С заявкой'),
+      (_NktFilter.deactivated, 'Деактивированы'),
+    ];
+
+    return chips.map((entry) {
+      final filter = entry.$1;
+      final label = entry.$2;
+      final count = _countForFilter(filter);
+      final selected = _filter == filter;
+
+      return Padding(
+        padding: const EdgeInsets.only(right: 6, bottom: 4),
+        child: FilterChip(
+          label: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label),
+              const SizedBox(width: 6),
+              _NktFilterCountBadge(count: count, selected: selected),
+            ],
+          ),
+          labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+          selected: selected,
+          showCheckmark: false,
+          selectedColor: AppColors.primary,
+          checkmarkColor: Colors.white,
+          labelStyle: TextStyle(
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+            color: selected ? Colors.white : AppColors.surface,
+          ),
+          side: BorderSide(
+            color: selected
+                ? AppColors.primary
+                : AppColors.muted.withValues(alpha: 0.45),
+          ),
+          onSelected: (_) => _selectFilter(filter),
+        ),
+      );
     }).toList();
   }
 
@@ -127,9 +196,7 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
     setState(() {
       if (value == true) {
         for (final p in visible) {
-          if (productHasScannableBarcode(p)) {
-            _selectedIds.add(p.id);
-          }
+          _selectedIds.add(p.id);
         }
       } else {
         for (final p in visible) {
@@ -140,33 +207,44 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
   }
 
   bool get _allVisibleSelected {
-    final visible = _filtered.where(
-      productHasScannableBarcode,
-    );
+    final visible = _filtered;
     if (visible.isEmpty) return false;
     return visible.every((p) => _selectedIds.contains(p.id));
   }
 
   Future<void> _onSingleSync(Product product) async {
-    if (!productHasScannableBarcode(product)) {
-      showToast(context, 'У товара нет штрихкода');
-      return;
-    }
-
     NktSearchResult? result;
     String? errorMsg;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const _LoadingDialog(text: 'Запрашиваем НКТ...'),
+      builder: (_) => const NktLoadingDialog(text: 'Запрашиваем НКТ...'),
     );
     try {
-      result = await widget.apiService.nktSearch(
-        product.id,
-        forceFresh: true,
-      );
-    } on DioException catch (e) {
-      errorMsg = _extractError(e, fallback: 'Ошибка запроса в НКТ');
+      if (productHasScannableBarcode(product)) {
+        result = await NktSearchFlow.searchWithBarcodeFallback(
+          api: widget.apiService,
+          productId: product.id,
+          product: product,
+          forceFresh: true,
+        );
+      } else {
+        final name = product.name.trim();
+        if (name.isEmpty) {
+          if (mounted) {
+            showToast(context, 'Укажите наименование товара');
+          }
+          return;
+        }
+        result = await NktSearchFlow.searchByName(
+          api: widget.apiService,
+          productId: product.id,
+          query: name,
+          forceFresh: true,
+        );
+      }
+    } on NktSearchException catch (e) {
+      errorMsg = e.message;
     } catch (_) {
       errorMsg = 'Ошибка запроса в НКТ';
     } finally {
@@ -179,7 +257,6 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
     }
     final res = result!;
     if (res.variants.isEmpty) {
-      // Бэкенд пометил товар как nkt_not_found=true — подтянем свежее состояние.
       try {
         final refreshed = await widget.apiService.getProduct(product.id);
         if (mounted) {
@@ -190,37 +267,155 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
         }
       } catch (_) {}
       if (mounted) {
-        final tried = res.barcodesTried;
-        final triedText = tried.isNotEmpty
-            ? tried.join(', ')
-            : (product.barcode ?? product.extraBarcodes.join(', '));
-        showToast(context, 'В НКТ ничего не найдено по штрихкодам: $triedText');
+        showToast(
+          context,
+          'В НКТ ничего не найдено по штрихкоду и наименованию',
+        );
       }
       return;
     }
 
     if (!mounted) return;
-    final pick = await showDialog<_VariantPickResult>(
+    final pick = await showNktVariantPickerDialog(
       context: context,
-      builder: (_) => _VariantPickerDialog(
-        product: product,
-        result: res,
-        bulkMode: false,
-      ),
+      product: product,
+      result: res,
+      apiService: widget.apiService,
+      productId: product.id,
     );
     if (pick == null || pick.ntin == null) return;
 
-    await _linkProduct(product, pick.ntin!);
+    await _linkProduct(
+      product,
+      pick.ntin!,
+      searchResult: pick.searchResult ?? res,
+    );
   }
 
-  Future<void> _linkProduct(Product product, String ntin) async {
+  Future<void> _onSearchByName(Product product) async {
+    final query = await NktSearchFlow.promptName(
+      context,
+      initialQuery: product.name,
+    );
+    if (query == null || !mounted) return;
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const _LoadingDialog(text: 'Привязываем к НКТ...'),
+      builder: (_) => const NktLoadingDialog(text: 'Поиск по наименованию...'),
+    );
+    NktSearchResult? result;
+    String? errorMsg;
+    try {
+      result = await NktSearchFlow.searchByName(
+        api: widget.apiService,
+        productId: product.id,
+        query: query,
+      );
+    } on NktSearchException catch (e) {
+      errorMsg = e.message;
+    } catch (_) {
+      errorMsg = 'Ошибка запроса в НКТ';
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    if (errorMsg != null) {
+      if (mounted) showToast(context, errorMsg);
+      return;
+    }
+    final res = result!;
+    if (res.variants.isEmpty) {
+      if (mounted) {
+        showToast(context, 'По наименованию «$query» ничего не найдено');
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    final pick = await showNktVariantPickerDialog(
+      context: context,
+      product: product,
+      result: res,
+      apiService: widget.apiService,
+      productId: product.id,
+    );
+    if (pick == null || pick.ntin == null) return;
+    await _linkProduct(
+      product,
+      pick.ntin!,
+      searchResult: pick.searchResult ?? res,
+    );
+  }
+
+  Future<void> _onSearchByNtin(Product product) async {
+    final ntin = await NktSearchFlow.promptNtin(context);
+    if (ntin == null || !mounted) return;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const NktLoadingDialog(text: 'Поиск по NTIN...'),
+    );
+    NktSearchResult? result;
+    String? errorMsg;
+    try {
+      result = await NktSearchFlow.searchByNtin(
+        api: widget.apiService,
+        productId: product.id,
+        ntin: ntin,
+      );
+    } on NktSearchException catch (e) {
+      errorMsg = e.message;
+    } catch (_) {
+      errorMsg = 'Ошибка запроса в НКТ';
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    if (errorMsg != null) {
+      if (mounted) showToast(context, errorMsg);
+      return;
+    }
+    final res = result!;
+    if (res.variants.isEmpty) {
+      if (mounted) showToast(context, 'По NTIN $ntin ничего не найдено');
+      return;
+    }
+
+    if (!mounted) return;
+    final pick = await showNktVariantPickerDialog(
+      context: context,
+      product: product,
+      result: res,
+      apiService: widget.apiService,
+      productId: product.id,
+    );
+    if (pick == null || pick.ntin == null) return;
+    await _linkProduct(
+      product,
+      pick.ntin!,
+      searchResult: pick.searchResult ?? res,
+    );
+  }
+
+  Future<void> _linkProduct(
+    Product product,
+    String ntin, {
+    NktSearchResult? searchResult,
+  }) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const NktLoadingDialog(text: 'Привязываем к НКТ...'),
     );
     try {
-      final updated = await widget.apiService.nktLink(product.id, ntin);
+      final updated = await widget.apiService.nktLink(
+        product.id,
+        ntin,
+        mode: searchResult?.searchMode,
+        query: searchResult?.searchQuery,
+      );
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
       setState(() {
@@ -243,7 +438,7 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const _LoadingDialog(text: 'Обновляем данные...'),
+      builder: (_) => const NktLoadingDialog(text: 'Обновляем данные...'),
     );
     try {
       final updated = await widget.apiService.nktRefresh(product.id);
@@ -323,13 +518,11 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
   }
 
   Future<void> _onBulkSync() async {
-    final selected = _products
-        .where((p) => _selectedIds.contains(p.id))
-        .where(productHasScannableBarcode)
-        .toList();
+    final selected =
+        _products.where((p) => _selectedIds.contains(p.id)).toList();
 
     if (selected.isEmpty) {
-      showToast(context, 'Нет выбранных товаров со штрихкодом');
+      showToast(context, 'Выберите товары в списке');
       return;
     }
 
@@ -443,8 +636,8 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
               const SizedBox(height: 2),
               Text(
                 'Привязано: $linkedCount из ${_products.length}'
+                ' · деактивировано в НКТ: $deactivatedCount'
                 '${notFoundCount > 0 ? ' · не найдено: $notFoundCount' : ''}'
-                '${deactivatedCount > 0 ? ' · деактивировано в НКТ: $deactivatedCount' : ''}'
                 '${requestCount > 0 ? ' · заявок: $requestCount' : ''}',
                 style: const TextStyle(color: AppColors.surface, fontSize: 13),
               ),
@@ -478,65 +671,7 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
             onChanged: (v) => setState(() => _searchQuery = v),
           ),
         ),
-        SegmentedButton<_NktFilter>(
-          showSelectedIcon: false,
-          style: ButtonStyle(
-            backgroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.selected)) {
-                return AppColors.primary;
-              }
-              if (states.contains(WidgetState.hovered)) {
-                return AppColors.primaryLight;
-              }
-              return Colors.white;
-            }),
-            foregroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.selected)) {
-                return Colors.white;
-              }
-              return AppColors.surface;
-            }),
-            side: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.selected)) {
-                return const BorderSide(color: AppColors.primary, width: 1.5);
-              }
-              return BorderSide(
-                color: AppColors.muted.withValues(alpha: 0.55),
-              );
-            }),
-            textStyle: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.selected)) {
-                return const TextStyle(fontWeight: FontWeight.w700);
-              }
-              return const TextStyle(fontWeight: FontWeight.w500);
-            }),
-            overlayColor: WidgetStateProperty.all(
-              AppColors.primary.withValues(alpha: 0.08),
-            ),
-          ),
-          segments: const [
-            ButtonSegment(value: _NktFilter.all, label: Text('Все')),
-            ButtonSegment(
-              value: _NktFilter.unlinked,
-              label: Text('Без привязки'),
-            ),
-            ButtonSegment(value: _NktFilter.linked, label: Text('Привязаны')),
-            ButtonSegment(
-              value: _NktFilter.notFound,
-              label: Text('Не найдены'),
-            ),
-            ButtonSegment(
-              value: _NktFilter.noBarcode,
-              label: Text('Без штрихкода'),
-            ),
-            ButtonSegment(
-              value: _NktFilter.withRequest,
-              label: Text('С заявкой'),
-            ),
-          ],
-          selected: {_filter},
-          onSelectionChanged: (s) => setState(() => _filter = s.first),
-        ),
+        ..._buildFilterChips(),
         if (_selectedIds.isNotEmpty) ...[
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -668,6 +803,8 @@ class _NktSyncScreenState extends State<NktSyncScreen> {
                     });
                   },
                   onSync: () => _onSingleSync(p),
+                  onSearchByName: () => _onSearchByName(p),
+                  onSearchByNtin: () => _onSearchByNtin(p),
                   onRefresh: () => _onRefresh(p),
                   onUnlink: () => _onUnlink(p),
                   onDetails: () => _onDetails(p),
@@ -691,6 +828,8 @@ class _ProductRow extends StatelessWidget {
     required this.isSelected,
     required this.onSelect,
     required this.onSync,
+    required this.onSearchByName,
+    required this.onSearchByNtin,
     required this.onRefresh,
     required this.onUnlink,
     required this.onDetails,
@@ -704,6 +843,8 @@ class _ProductRow extends StatelessWidget {
   final bool isSelected;
   final ValueChanged<bool?> onSelect;
   final VoidCallback onSync;
+  final VoidCallback onSearchByName;
+  final VoidCallback onSearchByNtin;
   final VoidCallback onRefresh;
   final VoidCallback onUnlink;
   final VoidCallback onDetails;
@@ -725,7 +866,7 @@ class _ProductRow extends StatelessWidget {
           children: [
             Checkbox(
               value: isSelected,
-              onChanged: hasBarcode ? onSelect : null,
+              onChanged: onSelect,
             ),
             const SizedBox(width: 4),
             Expanded(
@@ -773,6 +914,8 @@ class _ProductRow extends StatelessWidget {
                 product: product,
                 apiService: apiService,
                 onSync: onSync,
+                onSearchByName: onSearchByName,
+                onSearchByNtin: onSearchByNtin,
                 onRefresh: onRefresh,
                 onUnlink: onUnlink,
                 onDetails: onDetails,
@@ -853,6 +996,38 @@ class _NktStatus extends StatelessWidget {
   }
 }
 
+class _NktFilterCountBadge extends StatelessWidget {
+  const _NktFilterCountBadge({
+    required this.count,
+    required this.selected,
+  });
+
+  final int count;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: selected
+            ? Colors.white.withValues(alpha: 0.22)
+            : AppColors.primary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        '$count',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          height: 1.1,
+          color: selected ? Colors.white : AppColors.primary,
+        ),
+      ),
+    );
+  }
+}
+
 class _ChipBadge extends StatelessWidget {
   const _ChipBadge({
     required this.label,
@@ -899,6 +1074,8 @@ class _RowActions extends StatelessWidget {
     required this.product,
     required this.apiService,
     required this.onSync,
+    required this.onSearchByName,
+    required this.onSearchByNtin,
     required this.onRefresh,
     required this.onUnlink,
     required this.onDetails,
@@ -910,6 +1087,8 @@ class _RowActions extends StatelessWidget {
   final Product product;
   final ApiService apiService;
   final VoidCallback onSync;
+  final VoidCallback onSearchByName;
+  final VoidCallback onSearchByNtin;
   final VoidCallback onRefresh;
   final VoidCallback onUnlink;
   final VoidCallback onDetails;
@@ -943,15 +1122,27 @@ class _RowActions extends StatelessWidget {
             onProductUpdated: onProductUpdated,
             onOpenRequestTab: onOpenRequestTab,
           ),
-        if (!product.isLinkedToNkt)
+        if (!product.isLinkedToNkt) ...[
           FilledButton.icon(
-            onPressed: hasBarcode ? onSync : null,
+            onPressed: onSync,
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             ),
             icon: const Icon(Icons.sync, size: 16),
             label: const Text('Найти'),
-          )
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'Поиск по наименованию',
+            onPressed: onSearchByName,
+            icon: const Icon(Icons.text_fields, size: 18),
+          ),
+          IconButton(
+            tooltip: 'Поиск по NTIN',
+            onPressed: onSearchByNtin,
+            icon: const Icon(Icons.pin, size: 18),
+          ),
+        ]
         else ...[
           OutlinedButton.icon(
             onPressed: onRefresh,
@@ -980,260 +1171,6 @@ class _RowActions extends StatelessWidget {
   }
 }
 
-class _VariantPickResult {
-  const _VariantPickResult._({this.ntin, this.skip = false, this.cancelBulk = false});
-
-  final String? ntin;
-  final bool skip;
-  final bool cancelBulk;
-
-  factory _VariantPickResult.pick(String ntin) =>
-      _VariantPickResult._(ntin: ntin);
-  factory _VariantPickResult.skip() => const _VariantPickResult._(skip: true);
-  factory _VariantPickResult.cancelBulk() =>
-      const _VariantPickResult._(cancelBulk: true);
-}
-
-class _VariantPickerDialog extends StatefulWidget {
-  const _VariantPickerDialog({
-    required this.product,
-    required this.result,
-    this.bulkMode = false,
-    this.bulkIndex,
-    this.bulkTotal,
-  });
-
-  final Product product;
-  final NktSearchResult result;
-  final bool bulkMode;
-  final int? bulkIndex;
-  final int? bulkTotal;
-
-  @override
-  State<_VariantPickerDialog> createState() => _VariantPickerDialogState();
-}
-
-class _VariantPickerDialogState extends State<_VariantPickerDialog> {
-  String? _picked;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.result.variants.length == 1) {
-      _picked = widget.result.variants.first.ntinCode;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final variants = widget.result.variants;
-    final single = variants.length == 1;
-
-    final bulkHint = widget.bulkMode && widget.bulkTotal != null
-        ? ' (товар ${widget.bulkIndex! + 1} из ${widget.bulkTotal})'
-        : '';
-
-    return AlertDialog(
-      title: Text(
-        (single ? 'Найден товар в НКТ' : 'Выберите вариант') + bulkHint,
-      ),
-      content: SizedBox(
-        width: 600,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Локальный товар: ${widget.product.name}\n'
-              'Штрихкод: ${widget.product.barcode ?? widget.result.barcode ?? '—'}',
-              style: const TextStyle(color: AppColors.muted, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            if (widget.result.cached)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                margin: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.muted.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  'Данные из кэша',
-                  style: TextStyle(fontSize: 11, color: AppColors.muted),
-                ),
-              ),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: variants.length,
-                separatorBuilder: (_, __) => const Divider(height: 12),
-                itemBuilder: (_, i) {
-                  final v = variants[i];
-                  final selected = _picked == v.ntinCode;
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => setState(() => _picked = v.ntinCode),
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: selected
-                              ? AppColors.primary
-                              : AppColors.muted.withValues(alpha: 0.4),
-                          width: selected ? 2 : 1,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                        color: selected
-                            ? AppColors.primaryLight.withValues(alpha: 0.4)
-                            : null,
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Radio<String>(
-                            value: v.ntinCode ?? '',
-                            groupValue: _picked ?? '',
-                            onChanged: (val) => setState(() => _picked = val),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  v.nameRu ?? v.nameKk ?? '(без названия)',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                if (v.nameKk != null &&
-                                    v.nameKk != v.nameRu &&
-                                    v.nameKk!.isNotEmpty)
-                                  Text(
-                                    v.nameKk!,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.muted,
-                                    ),
-                                  ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'NTIN: ${v.ntinCode ?? '—'}'
-                                  '${v.gtin != null ? '   GTIN: ${v.gtin}' : ''}'
-                                  '${v.measureName != null ? '   Ед: ${v.measureName}' : ''}',
-                                  style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 12,
-                                    color: AppColors.muted,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Wrap(
-                                  spacing: 4,
-                                  runSpacing: 4,
-                                  children: [
-                                    if (v.isMarkedeac == true)
-                                      _ChipBadge(
-                                        label: 'Маркировка',
-                                        color: AppColors.accent,
-                                        icon: Icons.qr_code_2,
-                                      ),
-                                    if (v.isSocial == true)
-                                      _ChipBadge(
-                                        label: 'СЗПТ',
-                                        color: AppColors.primary,
-                                      ),
-                                    if (v.isDeactivated == true)
-                                      _ChipBadge(
-                                        label: 'Деактивирован',
-                                        color: AppColors.danger,
-                                      ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: widget.bulkMode
-          ? [
-              TextButton(
-                onPressed: () => Navigator.pop(
-                  context,
-                  _VariantPickResult.cancelBulk(),
-                ),
-                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-                child: const Text('Остановить'),
-              ),
-              OutlinedButton(
-                onPressed: () =>
-                    Navigator.pop(context, _VariantPickResult.skip()),
-                child: const Text('Пропустить'),
-              ),
-              FilledButton(
-                onPressed: (_picked != null && _picked!.isNotEmpty)
-                    ? () => Navigator.pop(
-                        context,
-                        _VariantPickResult.pick(_picked!),
-                      )
-                    : null,
-                child: const Text('Привязать и далее'),
-              ),
-            ]
-          : [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Отмена'),
-              ),
-              FilledButton(
-                onPressed: (_picked != null && _picked!.isNotEmpty)
-                    ? () => Navigator.pop(
-                        context,
-                        _VariantPickResult.pick(_picked!),
-                      )
-                    : null,
-                child: const Text('Привязать'),
-              ),
-            ],
-    );
-  }
-}
-
-class _LoadingDialog extends StatelessWidget {
-  const _LoadingDialog({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
-            ),
-            const SizedBox(width: 16),
-            Text(text),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 enum _BulkMode { autoLink, refreshOnly }
 
 enum _BulkStatus { pending, processing, linked, refreshed, skipped, failed }
@@ -1244,6 +1181,7 @@ class _BulkItem {
   _BulkStatus status = _BulkStatus.pending;
   String? note;
 }
+
 
 class _BulkProgressDialog extends StatefulWidget {
   const _BulkProgressDialog({
@@ -1301,26 +1239,48 @@ class _BulkProgressDialogState extends State<_BulkProgressDialog> {
             widget.onProductUpdated(updated);
             item.status = _BulkStatus.refreshed;
           } else {
-            final res = await widget.apiService.nktSearch(
-              item.product.id,
-              forceFresh: true,
-            );
-            if (res.variants.isEmpty) {
+            NktSearchResult? res;
+            try {
+              if (productHasScannableBarcode(item.product)) {
+                res = await NktSearchFlow.searchWithBarcodeFallback(
+                  api: widget.apiService,
+                  productId: item.product.id,
+                  product: item.product,
+                  forceFresh: true,
+                );
+              } else {
+                final name = item.product.name.trim();
+                if (name.isEmpty) {
+                  item.status = _BulkStatus.skipped;
+                  item.note = 'Нет наименования';
+                  continue;
+                }
+                res = await NktSearchFlow.searchByName(
+                  api: widget.apiService,
+                  productId: item.product.id,
+                  query: name,
+                  forceFresh: true,
+                );
+              }
+            } on NktSearchException catch (e) {
+              item.status = _BulkStatus.failed;
+              item.note = e.message;
+              continue;
+            }
+            if (res == null || res.variants.isEmpty) {
               item.status = _BulkStatus.skipped;
               item.note = 'Нет в НКТ';
             } else if (res.variants.length > 1) {
-              // Несколько вариантов — приостанавливаем цикл, спрашиваем пользователя.
               if (!mounted) break;
-              final pick = await showDialog<_VariantPickResult>(
+              final pick = await showNktVariantPickerDialog(
                 context: context,
-                barrierDismissible: false,
-                builder: (_) => _VariantPickerDialog(
-                  product: item.product,
-                  result: res,
-                  bulkMode: true,
-                  bulkIndex: i,
-                  bulkTotal: _items.length,
-                ),
+                product: item.product,
+                result: res,
+                apiService: widget.apiService,
+                productId: item.product.id,
+                bulkMode: true,
+                bulkIndex: i,
+                bulkTotal: _items.length,
               );
               if (!mounted) break;
               if (pick == null || pick.cancelBulk) {
@@ -1331,9 +1291,12 @@ class _BulkProgressDialogState extends State<_BulkProgressDialog> {
                 item.status = _BulkStatus.skipped;
                 item.note = 'Пропущено вручную';
               } else if (pick.ntin != null && pick.ntin!.isNotEmpty) {
+                final sr = pick.searchResult ?? res;
                 final updated = await widget.apiService.nktLink(
                   item.product.id,
                   pick.ntin!,
+                  mode: sr.searchMode,
+                  query: sr.searchQuery,
                 );
                 widget.onProductUpdated(updated);
                 item.status = _BulkStatus.linked;
@@ -1350,6 +1313,8 @@ class _BulkProgressDialogState extends State<_BulkProgressDialog> {
                 final updated = await widget.apiService.nktLink(
                   item.product.id,
                   ntin,
+                  mode: res.searchMode,
+                  query: res.searchQuery,
                 );
                 widget.onProductUpdated(updated);
                 item.status = _BulkStatus.linked;

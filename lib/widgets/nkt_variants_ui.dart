@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../core/theme.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../utils/nkt_search_flow.dart';
 
 String nktExtractDioError(DioException e, {required String fallback}) {
   final data = e.response?.data;
@@ -227,15 +228,56 @@ class NktVariantBadge extends StatelessWidget {
   }
 }
 
-/// Диалог выбора варианта из ответа НКТ. Возвращает NTIN или null.
-Future<String?> showNktVariantPickerDialog({
+/// Результат диалога выбора варианта (поддержка bulk-режима).
+class NktVariantPickResult {
+  const NktVariantPickResult._({
+    this.ntin,
+    this.skip = false,
+    this.cancelBulk = false,
+    this.searchResult,
+  });
+
+  final String? ntin;
+  final bool skip;
+  final bool cancelBulk;
+  final NktSearchResult? searchResult;
+
+  factory NktVariantPickResult.pick(
+    String ntin, {
+    NktSearchResult? searchResult,
+  }) =>
+      NktVariantPickResult._(ntin: ntin, searchResult: searchResult);
+
+  factory NktVariantPickResult.skip() =>
+      const NktVariantPickResult._(skip: true);
+
+  factory NktVariantPickResult.cancelBulk() =>
+      const NktVariantPickResult._(cancelBulk: true);
+}
+
+/// Диалог выбора варианта из ответа НКТ.
+Future<NktVariantPickResult?> showNktVariantPickerDialog({
   required BuildContext context,
   required Product product,
   required NktSearchResult result,
+  required ApiService apiService,
+  required int productId,
+  bool bulkMode = false,
+  int? bulkIndex,
+  int? bulkTotal,
 }) {
-  return showDialog<String>(
+  return showDialog<NktVariantPickResult>(
     context: context,
-    builder: (ctx) => _NktVariantPickerDialog(product: product, result: result),
+    barrierDismissible: !bulkMode,
+    builder: (ctx) => _NktVariantPickerDialog(
+      product: product,
+      result: result,
+      apiService: apiService,
+      productId: productId,
+      bulkMode: bulkMode,
+      bulkIndex: bulkIndex,
+      bulkTotal: bulkTotal,
+    ),
   );
 }
 
@@ -243,22 +285,40 @@ class _NktVariantPickerDialog extends StatefulWidget {
   const _NktVariantPickerDialog({
     required this.product,
     required this.result,
+    required this.apiService,
+    required this.productId,
+    this.bulkMode = false,
+    this.bulkIndex,
+    this.bulkTotal,
   });
 
   final Product product;
   final NktSearchResult result;
+  final ApiService apiService;
+  final int productId;
+  final bool bulkMode;
+  final int? bulkIndex;
+  final int? bulkTotal;
 
   @override
   State<_NktVariantPickerDialog> createState() => _NktVariantPickerDialogState();
 }
 
 class _NktVariantPickerDialogState extends State<_NktVariantPickerDialog> {
+  late NktSearchResult _result;
   String? _picked;
+  bool _loading = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    final variants = widget.result.variants;
+    _result = widget.result;
+    _initPicked();
+  }
+
+  void _initPicked() {
+    final variants = _result.variants;
     if (variants.length == 1) {
       _picked = variants.first.ntinCode;
     } else if (widget.product.nktNtin != null &&
@@ -267,15 +327,72 @@ class _NktVariantPickerDialogState extends State<_NktVariantPickerDialog> {
     }
   }
 
+  String get _modeLabel =>
+      _result.searchMode?.labelRu ?? 'По штрихкоду';
+
+  Future<void> _reload(NktSearchResult next) async {
+    setState(() {
+      _result = next;
+      _picked = null;
+      _error = null;
+      _initPicked();
+    });
+  }
+
+  Future<void> _searchByName() async {
+    final query = await NktSearchFlow.promptName(
+      context,
+      initialQuery: widget.product.name,
+    );
+    if (query == null || !mounted) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final next = await widget.apiService.nktSearch(
+        widget.productId,
+        mode: NktSearchMode.byName,
+        query: query,
+        forceFresh: true,
+        markNotFound: true,
+      );
+      if (!mounted) return;
+      await _reload(next);
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = nktExtractDioError(e, fallback: 'Ошибка поиска');
+        _loading = false;
+      });
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Ошибка поиска';
+        _loading = false;
+      });
+      return;
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final variants = widget.result.variants;
+    final variants = _result.variants;
     final single = variants.length == 1;
     final barcode =
-        widget.product.barcode ?? widget.result.barcode ?? '—';
+        widget.product.barcode ?? _result.barcode ?? '—';
+
+    final bulkHint = widget.bulkMode && widget.bulkTotal != null
+        ? ' (товар ${widget.bulkIndex! + 1} из ${widget.bulkTotal})'
+        : '';
 
     return AlertDialog(
-      title: Text(single ? 'Найден товар в НКТ' : 'Варианты в НКТ'),
+      title: Text(
+        (single ? 'Найден товар в НКТ' : 'Выберите вариант') + bulkHint,
+      ),
       content: SizedBox(
         width: 600,
         child: Column(
@@ -283,11 +400,14 @@ class _NktVariantPickerDialogState extends State<_NktVariantPickerDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Локальный товар: ${widget.product.name}\nШтрихкод: $barcode',
+              'Локальный товар: ${widget.product.name}\n'
+              'Штрихкод: $barcode\n'
+              'Режим: $_modeLabel'
+              '${_result.searchQuery != null ? ' (${_result.searchQuery})' : ''}',
               style: const TextStyle(color: AppColors.muted, fontSize: 13),
             ),
             const SizedBox(height: 12),
-            if (widget.result.cached)
+            if (_result.cached)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 margin: const EdgeInsets.only(bottom: 8),
@@ -300,41 +420,97 @@ class _NktVariantPickerDialogState extends State<_NktVariantPickerDialog> {
                   style: TextStyle(fontSize: 11, color: AppColors.muted),
                 ),
               ),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: variants.length,
-                separatorBuilder: (_, __) => const Divider(height: 12),
-                itemBuilder: (_, i) {
-                  final v = variants[i];
-                  final ntin = v.ntinCode ?? '';
-                  return NktVariantTile(
-                    variant: v,
-                    selected: _picked == ntin,
-                    isLinked: widget.product.nktNtin == ntin,
-                    showRadio: true,
-                    groupValue: _picked ?? '',
-                    onRadioChanged: (val) => setState(() => _picked = val),
-                    onTap: () => setState(() => _picked = ntin),
-                  );
-                },
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_error != null)
+              Text(_error!, style: const TextStyle(color: AppColors.danger))
+            else if (variants.isEmpty)
+              const Text(
+                'Варианты не найдены. Попробуйте поиск по наименованию.',
+                style: TextStyle(color: AppColors.muted, fontSize: 13),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: variants.length,
+                  separatorBuilder: (_, __) => const Divider(height: 12),
+                  itemBuilder: (_, i) {
+                    final v = variants[i];
+                    final ntin = v.ntinCode ?? '';
+                    return NktVariantTile(
+                      variant: v,
+                      selected: _picked == ntin,
+                      isLinked: widget.product.nktNtin == ntin,
+                      showRadio: true,
+                      groupValue: _picked ?? '',
+                      onRadioChanged: (val) => setState(() => _picked = val),
+                      onTap: () => setState(() => _picked = ntin),
+                    );
+                  },
+                ),
+              ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _loading ? null : _searchByName,
+                icon: const Icon(Icons.search, size: 18),
+                label: const Text('Поиск по наименованию'),
               ),
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Закрыть'),
-        ),
-        FilledButton(
-          onPressed: (_picked != null && _picked!.isNotEmpty)
-              ? () => Navigator.pop(context, _picked)
-              : null,
-          child: const Text('Привязать'),
-        ),
-      ],
+      actions: widget.bulkMode
+          ? [
+              TextButton(
+                onPressed: () => Navigator.pop(
+                  context,
+                  NktVariantPickResult.cancelBulk(),
+                ),
+                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                child: const Text('Остановить'),
+              ),
+              OutlinedButton(
+                onPressed: () =>
+                    Navigator.pop(context, NktVariantPickResult.skip()),
+                child: const Text('Пропустить'),
+              ),
+              FilledButton(
+                onPressed: (_picked != null && _picked!.isNotEmpty && !_loading)
+                    ? () => Navigator.pop(
+                        context,
+                        NktVariantPickResult.pick(
+                          _picked!,
+                          searchResult: _result,
+                        ),
+                      )
+                    : null,
+                child: const Text('Привязать и далее'),
+              ),
+            ]
+          : [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Отмена'),
+              ),
+              FilledButton(
+                onPressed: (_picked != null && _picked!.isNotEmpty && !_loading)
+                    ? () => Navigator.pop(
+                        context,
+                        NktVariantPickResult.pick(
+                          _picked!,
+                          searchResult: _result,
+                        ),
+                      )
+                    : null,
+                child: const Text('Привязать'),
+              ),
+            ],
     );
   }
 }
